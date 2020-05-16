@@ -518,19 +518,19 @@ enum ErrorsVariants Err;
  }
  if (!c_key && !p_key && !b_key && !d_key && !*ProcessFile) {
     printf("\n"
-    "Experimental Compression Program. (c) 2000 by Michael Semikov\n"
-    "Version 0.experimental.slow\n\n"
-    "use: ecp [ [-c] { [-p] [-bNNN] file_to_compress | -d file_to_decompress} ]\n"
+    "Experimental Compression Program. (c) 1999-2020 by Michael Semikov\n"
+    "Version 0.1\n\n"
+    "use: zbitblit [ [-c] { [-p] [-bNNN] file_to_compress | -d file_to_decompress} ]\n"
     "\nThis program is one-file archiver and also it has some keys:\n"
-    "    -c - Write data to STDOUT\n"
-    "    -p - Compress and use preprocess stage.\n"
-    "         Sometimes \"-p\" can improve compression,\n"
-    "         especially on so called \"water\" data\n"
-    "    -b{1 .. 127} - Use block size of N*100 KBytes on compression stage\n"
+    "    -c - Write data to STDOUT\n\n"
+    "    -p - Compress with use of preprocess stage.\n\n"
+    "         Sometimes \"-p\" can improve compression (enables LZP stage),\n"
+    "         especially on highly redundant data\n\n"
+    "    -b{1 .. 127} - Use block compression size of N*100 KBytes,\n"
     "                   this option also improves compression ratio\n"
-    "                   By default this key equal to 3\n"
-    "    -d - Uncompress archive\n\n\n"
-    "Warning! You use this program at own risk!\n"
+    "                   Default key=3\n\n"
+    "    -d - Decompress archive\n\n\n"
+    "Warning! You use this program at your own risk!\n"
     );
     return;
  }
