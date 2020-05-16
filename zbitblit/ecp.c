@@ -1,5 +1,5 @@
 /****************************************************************************
- *   Copyright (C) 1999-2000 Semikov Michael Alexandrovitch                 *
+ *   Copyright (C) 1999-2020 Semikov Michael Alexandrovitch                 *
  *                                                                          *
  *   This program is free software; you can redistribute it and/or modify   *
  *   it under the terms of the GNU General Public License as published by   *
