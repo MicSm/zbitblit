@@ -45,13 +45,3 @@ foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
     string(TOLOWER ${CONFIG} CONFIG_LOWER)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG} ${CMAKE_BINARY_DIR}/${CONFIG_LOWER}/${ARCH})
 endforeach()
-
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    OUTPUT_NAME "${PROJECT_NAME}_${ARCH}"
-)
-
-if(WIN32)
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        DEBUG_POSTFIX "d"
-    )
-endif()

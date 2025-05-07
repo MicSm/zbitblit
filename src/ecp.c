@@ -119,7 +119,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	uint32_t j, NumZeroes;
 	uint16_t NxVal;
 	uint8_t* InputBuffer, * OutputBuffer;
-	register uint32_t Left, Right, Middle;
+	uint32_t Left, Right, Middle;
 
 
 	InputFileHeader = fopen(InFileName, "rb");

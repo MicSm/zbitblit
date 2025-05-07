@@ -83,7 +83,7 @@ void EncodeEnd(bfile* fil) {
 	Output(low < Q1 ? 0 : 1, fil);
 }
 
-static int16_t BinarySearchSym(register uint16_t x, SYMB* ptr, int16_t n_char) {
+static int16_t BinarySearchSym(uint16_t x, SYMB* ptr, int16_t n_char) {
 	int16_t i, j, k;
 
 	i = 1; j = n_char;
