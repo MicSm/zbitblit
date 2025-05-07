@@ -1,15 +1,15 @@
 #pragma once
 
 #include <stdlib.h>
-#include "inc/mtypes.h"
+#include <stdint.h>
 
-extern uint8** HashTable4, ** HashTable5;
+extern uint8_t** HashTable4, ** HashTable5;
 #define HTSIZE4 65536UL
 #define HTSIZE5 32768UL
 
 /* clean hash tables */
 void CleanTabs(void);
 
-uint32 LZP_PREPROCESS(uint8* InData, uint8* OutData, uint32 InLength);
+uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength);
 
-uint32 UnPreprocess(uint8* InData, uint8* OutData, uint32 InLength);
+uint32_t UnPreprocess(uint8_t* InData, uint8_t* OutData, uint32_t InLength);

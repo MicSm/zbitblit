@@ -4,14 +4,9 @@ project(${PROJECT_NAME} C)
 
 set(CMAKE_C_STANDARD 11)
 
-if(WIN32)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g")
-else()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g")
+add_compile_options(-Wall)
+if(UNIX)
+    add_compile_options(-Wextra)
 endif()
 
 set(SOURCES
@@ -27,7 +22,6 @@ set(SOURCES
 set(HEADERS
     inc/cmstruct.h
     inc/mio.h
-    inc/mtypes.h
     inc/arithm.h
     inc/bwt.h
     inc/lzp_prep.h

@@ -6,24 +6,25 @@
 */
 
 #include <stdlib.h>
+#include <stdint.h>
 #include "inc/bwt.h"
 #include "inc/sort3.h"
 
-uint32* SBck, * SBm;
-uint32* idxs;
-uint32 v[256];
-uint8 ord[256];
+uint32_t* SBck, * SBm;
+uint32_t* idxs;
+uint32_t v[256];
+uint8_t ord[256];
 
-uint32 ScanLen;
-uint8* ScanBuf;
+uint32_t ScanLen;
+uint8_t* ScanBuf;
 
-#define C_B ((uint32)0x7fffffff)
-#define M_B ((uint32)0x80000000)
+#define C_B ((uint32_t)0x7fffffff)
+#define M_B ((uint32_t)0x80000000)
 
 int SetupBwtBuffers(void) {
 
-	SBck = (uint32*)malloc((uint32)65537 * (uint32)sizeof(uint32));
-	SBm = (uint32*)malloc((uint32)65536 * (uint32)sizeof(uint32));
+	SBck = (uint32_t*)malloc((uint32_t)65537 * (uint32_t)sizeof(uint32_t));
+	SBm = (uint32_t*)malloc((uint32_t)65536 * (uint32_t)sizeof(uint32_t));
 
 	if (SBck != NULL && SBm != NULL) return 1;
 
@@ -38,16 +39,16 @@ void FreeBwtBuffers(void) {
 	free(SBm);
 }
 
-static int fcmp1(uint8 a, uint8 b) {
-	uint32 elemL = v[a], elemR = v[b];
+static int fcmp1(uint8_t a, uint8_t b) {
+	uint32_t elemL = v[a], elemR = v[b];
 
 	if (elemL < elemR) return -1;
 	else if (elemL > elemR) return 1;
 	return 0;
 }
 
-static int fcmp2(uint32 a, uint32 b) {
-	uint32 c;
+static int fcmp2(uint32_t a, uint32_t b) {
+	uint32_t c;
 
 	c = ScanLen;
 	while (ScanBuf[a] == ScanBuf[b] && c) {
@@ -62,12 +63,12 @@ static int fcmp2(uint32 a, uint32 b) {
 	return 0;
 }
 
-uint32 BWT_TRANSFORM(uint32 len, uint8* pb) {
-	uint32 i, ptr;
-	uint32 i1, j, k;
-	uint8 mask[256], st_mask[256];
+uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb) {
+	uint32_t i, ptr;
+	uint32_t i1, j, k;
+	uint8_t mask[256], st_mask[256];
 
-	uint16 vtmp0;
+	uint16_t vtmp0;
 
 	ScanLen = len - 2;
 	ScanBuf = pb;
@@ -76,21 +77,21 @@ uint32 BWT_TRANSFORM(uint32 len, uint8* pb) {
 
 	/* calculate buckets */
 	for (i = 0; i < len - 1; i++)
-		SBck[(((uint16)pb[i]) << 8) | (uint16)pb[i + 1]]++;
-	SBck[(((uint16)pb[len - 1]) << 8) | (uint16)pb[0]]++;
+		SBck[(((uint16_t)pb[i]) << 8) | (uint16_t)pb[i + 1]]++;
+	SBck[(((uint16_t)pb[len - 1]) << 8) | (uint16_t)pb[0]]++;
 
 	/* fill indexes according to the buckets */
 	for (i = 0x0001; i < 0x10001; i++) SBck[i] += SBck[i - 1];
 
 	for (i = 0; i < len - 2; i++)
-		idxs[--SBck[(((uint16)pb[i]) << 8) | (uint16)pb[i + 1]]] = i + 2;
-	idxs[--SBck[(((uint16)pb[len - 2]) << 8) | (uint16)pb[len - 1]]] = 0;
-	idxs[--SBck[(((uint16)pb[len - 1]) << 8) | (uint16)pb[0]]] = 1;
+		idxs[--SBck[(((uint16_t)pb[i]) << 8) | (uint16_t)pb[i + 1]]] = i + 2;
+	idxs[--SBck[(((uint16_t)pb[len - 2]) << 8) | (uint16_t)pb[len - 1]]] = 0;
+	idxs[--SBck[(((uint16_t)pb[len - 1]) << 8) | (uint16_t)pb[0]]] = 1;
 
 	/* sort buckets on value criteria */
 	for (i = 0; i < 256; i++) {
 		v[i] = SBck[(i + 1) << 8] - SBck[i << 8];
-		ord[i] = (uint8)i;
+		ord[i] = (uint8_t)i;
 	}
 	qsort1(ord, 256, fcmp1);
 
@@ -116,27 +117,27 @@ uint32 BWT_TRANSFORM(uint32 len, uint8* pb) {
 				mask[pb[k]] = 1;
 				st_mask[ptr++] = pb[k];
 			}
-			vtmp0 = (((uint16)pb[k]) << 8) | (uint16)i1;
+			vtmp0 = (((uint16_t)pb[k]) << 8) | (uint16_t)i1;
 			idxs[(SBck[vtmp0] & C_B) + SBm[vtmp0]] =
 				((idxs[j] >= 1) ? idxs[j] - 1 : len + idxs[j] - 1);
 			SBm[vtmp0]++;
 		}
 		while (ptr) {
 			mask[st_mask[--ptr]] = 0;
-			SBm[(((uint16)st_mask[ptr]) << 8) | i1] = 0;
-			SBck[(((uint16)st_mask[ptr]) << 8) | i1] |= M_B;
+			SBm[(((uint16_t)st_mask[ptr]) << 8) | i1] = 0;
+			SBck[(((uint16_t)st_mask[ptr]) << 8) | i1] |= M_B;
 		}
 	}
 	/* find source string position */
-	j = (((uint16)pb[0]) << 8) | ((uint16)pb[1]);
+	j = (((uint16_t)pb[0]) << 8) | ((uint16_t)pb[1]);
 	i = SBck[j] & C_B;
 	j = (SBck[j + 1] & C_B);
 	while (i < j && idxs[i] != 2) i++;
 	return i;
 }
 
-void UnBWT(uint32 StrPos, uint32 len, uint8* InputBuffer, uint8* OutputBuffer) {
-	int32 i;
+void UnBWT(uint32_t StrPos, uint32_t len, uint8_t* InputBuffer, uint8_t* OutputBuffer) {
+	int32_t i;
 
 	/* clean buffer */
 	for (i = 0; i < 256; i++)

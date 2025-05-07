@@ -6,60 +6,60 @@
 #include <stdlib.h>
 #include "inc/lzp_prep.h"
 
-uint8** HashTable4, ** HashTable5;
+uint8_t** HashTable4, ** HashTable5;
 
-static uint32 HashFunction4(uint32 index, uint8* PTR) {
-	uint32 x;
+static uint32_t HashFunction4(uint32_t index, uint8_t* PTR) {
+	uint32_t x;
 
-	x = (((uint32)PTR[index - 4]) << 24) | (((uint32)PTR[index - 3]) << 16) |
-		(((uint32)PTR[index - 2]) << 8) | (((uint32)PTR[index - 1]));
+	x = (((uint32_t)PTR[index - 4]) << 24) | (((uint32_t)PTR[index - 3]) << 16) |
+		(((uint32_t)PTR[index - 2]) << 8) | (((uint32_t)PTR[index - 1]));
 	x = (x >> 15) ^ x ^ (x >> 3);
 	return x & (HTSIZE4 - 1);
 }
 
-static uint32 HashFunction5(uint32 index, uint8* PTR) {
-	uint32 x;
+static uint32_t HashFunction5(uint32_t index, uint8_t* PTR) {
+	uint32_t x;
 
-	x = (((uint32)PTR[index - 4]) << 24) | (((uint32)PTR[index - 3]) << 16) |
-		(((uint32)PTR[index - 2])) << 8 | (((uint32)PTR[index - 1]));
-	x = (x >> 25 | ((uint32)PTR[index - 5]) << 7) ^ x ^ (x << 4);
+	x = (((uint32_t)PTR[index - 4]) << 24) | (((uint32_t)PTR[index - 3]) << 16) |
+		(((uint32_t)PTR[index - 2])) << 8 | (((uint32_t)PTR[index - 1]));
+	x = (x >> 25 | ((uint32_t)PTR[index - 5]) << 7) ^ x ^ (x << 4);
 	return x & (HTSIZE5 - 1);
 }
 
 /* You can modify this const and get better compression */
 #define LowerLimit 38
 
-static void OutPutLength(uint32 OutPutLength, uint8* OutBuffer, uint32* PBuffer) {
+static void OutPutLength(uint32_t OutPutLength, uint8_t* OutBuffer, uint32_t* PBuffer) {
 	while (OutPutLength > 254) {
 		OutBuffer[(*PBuffer)++] = 255;
 		OutPutLength -= 255;
 	}
-	OutBuffer[(*PBuffer)++] = (uint8)OutPutLength;
+	OutBuffer[(*PBuffer)++] = (uint8_t)OutPutLength;
 }
 
-static uint32 GetLength(uint8* InputBuffer, uint32* PBuff) {
-	uint32 Result;
+static uint32_t GetLength(uint8_t* InputBuffer, uint32_t* PBuff) {
+	uint32_t Result;
 
 	Result = 0;
-	while (Result += (uint32)InputBuffer[*PBuff], InputBuffer[(*PBuff)++] == 255);
+	while (Result += (uint32_t)InputBuffer[*PBuff], InputBuffer[(*PBuff)++] == 255);
 	return Result;
 }
 
 /* clean hash tables */
 void CleanTabs(void) {
-	uint32 i;
+	uint32_t i;
 
 	for (i = 0; i < HTSIZE4; i++) HashTable4[i] = NULL;
 	for (i = 0; i < HTSIZE5; i++) HashTable5[i] = NULL;
 }
 
-uint32 LZP_PREPROCESS(uint8* InData, uint8* OutData, uint32 InLength) {
-	uint32 i, CommonLength;
-	uint32 OutLength;
-	uint32 HashIndex4, HashIndex5;
-	uint8* Pointer4, * Pointer5;
-	uint32 Pointer;
-	uint8* PastPointer;
+uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength) {
+	uint32_t i, CommonLength;
+	uint32_t OutLength;
+	uint32_t HashIndex4, HashIndex5;
+	uint8_t* Pointer4, * Pointer5;
+	uint32_t Pointer;
+	uint8_t* PastPointer;
 
 	/* send 5 bytes to output */
 	OutLength = 0;
@@ -103,7 +103,7 @@ uint32 LZP_PREPROCESS(uint8* InData, uint8* OutData, uint32 InLength) {
 					&OutLength);
 
 			else
-				OutPutLength((uint32)InData[Pointer++], OutData, &OutLength);
+				OutPutLength((uint32_t)InData[Pointer++], OutData, &OutLength);
 
 		}
 		else  OutData[OutLength++] = InData[Pointer++];
@@ -111,13 +111,13 @@ uint32 LZP_PREPROCESS(uint8* InData, uint8* OutData, uint32 InLength) {
 	return OutLength;
 }
 
-uint32 UnPreprocess(uint8* InData, uint8* OutData, uint32 InLength) {
-	uint32 i, CommonLength;
-	uint32 OutLength;
-	uint32 HashIndex4, HashIndex5;
-	uint8* Pointer4, * Pointer5;
-	uint32 Pointer;
-	uint8* PastPointer;
+uint32_t UnPreprocess(uint8_t* InData, uint8_t* OutData, uint32_t InLength) {
+	uint32_t i, CommonLength;
+	uint32_t OutLength;
+	uint32_t HashIndex4, HashIndex5;
+	uint8_t* Pointer4, * Pointer5;
+	uint32_t Pointer;
+	uint8_t* PastPointer;
 
 	/* send 5 bytes to output */
 	OutLength = 0;
@@ -145,7 +145,7 @@ uint32 UnPreprocess(uint8* InData, uint8* OutData, uint32 InLength) {
 			else PastPointer = Pointer4;
 			CommonLength = GetLength(InData, &Pointer);
 			if (CommonLength < 256)
-				OutData[OutLength++] = (uint8)CommonLength;
+				OutData[OutLength++] = (uint8_t)CommonLength;
 			else {
 				CommonLength = CommonLength - 256 + LowerLimit;
 				while (CommonLength--)

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "inc/mtypes.h"
+#include <stdint.h>
 
-extern uint32* idxs;
+extern uint32_t* idxs;
 
 int SetupBwtBuffers(void);
 
 void FreeBwtBuffers(void);
 
-uint32 BWT_TRANSFORM(uint32 len, uint8* pb);
+uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb);
 
-void UnBWT(uint32 StrPos, uint32 len, uint8* InputBuffer, uint8* OutputBuffer);
+void UnBWT(uint32_t StrPos, uint32_t len, uint8_t* InputBuffer, uint8_t* OutputBuffer);

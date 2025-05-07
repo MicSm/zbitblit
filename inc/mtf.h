@@ -1,11 +1,11 @@
 #pragma once
 
-#include "inc/mtypes.h"
+#include <stdint.h>
 
 void MtfSetup(void);
 
 void DeMtfSetup(void);
 
-uint16 GetMtfValue(uint16 InValue);
+uint16_t GetMtfValue(uint16_t InValue);
 
-uint8 GetByMtfPosition(uint8 Position);
+uint8_t GetByMtfPosition(uint8_t Position);

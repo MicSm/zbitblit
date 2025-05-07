@@ -17,8 +17,6 @@
  ****************************************************************************/
 
 
-#pragma warning(disable : 4996)
-
 #if defined(_WIN32) || defined(_WIN64)
 # define __WINDOWS_COMPILATION
 #endif
@@ -28,12 +26,12 @@
 # include <fcntl.h>
 #endif
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
-#include "inc/mtypes.h"
 #include "inc/mio.h"
 #include "inc/cmstruct.h"
 #include "inc/arithm.h"
@@ -52,7 +50,7 @@ CompressedHeader Header;
 
 
 void PutHeader(CompressedHeader* Ptr, bfile* OutF) {
-	uint8* p;
+	uint8_t* p;
 
 	fwrite(ArcIdentifier, 12, 1, OutF->file);
 	p = Ptr->FileName;
@@ -67,10 +65,10 @@ void PutHeader(CompressedHeader* Ptr, bfile* OutF) {
 
 }
 
-int32 GetHeader(CompressedHeader* Ptr, bfile* InF) {
-	uint8* p;
-	uint8 ArcRd[12];
-	int16 c;
+int32_t GetHeader(CompressedHeader* Ptr, bfile* InF) {
+	uint8_t* p;
+	uint8_t ArcRd[12];
+	int16_t c;
 
 	for (c = 0; c < 12; c++) ArcRd[c] = 0;
 	fread(ArcRd, 12, 1, InF->file);
@@ -78,18 +76,18 @@ int32 GetHeader(CompressedHeader* Ptr, bfile* InF) {
 	if (c != 12) return 1;
 
 	p = Ptr->FileName;
-	while (c = fgetc(InF->file)) *p++ = (uint8)c;
+	while (c = fgetc(InF->file)) *p++ = (uint8_t)c;
 	*p++ = 0;
 
 	Ptr->UncompressedLen = fgetc(InF->file);
 	Ptr->UncompressedLen <<= 8;
-	Ptr->UncompressedLen |= (uint8)fgetc(InF->file);
+	Ptr->UncompressedLen |= (uint8_t)fgetc(InF->file);
 	Ptr->UncompressedLen <<= 8;
-	Ptr->UncompressedLen |= (uint8)fgetc(InF->file);
+	Ptr->UncompressedLen |= (uint8_t)fgetc(InF->file);
 	Ptr->UncompressedLen <<= 8;
-	Ptr->UncompressedLen |= (uint8)fgetc(InF->file);
+	Ptr->UncompressedLen |= (uint8_t)fgetc(InF->file);
 
-	Ptr->SystemFlag = (uint8)fgetc(InF->file);
+	Ptr->SystemFlag = (uint8_t)fgetc(InF->file);
 	return 0;
 }
 
@@ -103,30 +101,30 @@ int32 GetHeader(CompressedHeader* Ptr, bfile* InF) {
 */
 
 
-uint32 PyramidTable[25] = {
+uint32_t PyramidTable[25] = {
 0, 2, 6, 14, 30, 62, 126, 254, 510, 1022, 2046, 4094, 8190, 16382,
 32766, 65534, 131070, 262142, 524286, 1048574, 2097150, 4194302,
 8388606, 16777214, 33554430 };
 
 SYMB StandardWriter, Code12Out;
 
-int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
-	uint8 BlockSizeCode, uint8 StdOutOn) {
-	uint32 InputFileSize;
+int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
+	uint8_t BlockSizeCode, uint8_t StdOutOn) {
+	uint32_t InputFileSize;
 	FILE* InputFileHeader;
 	bfile* OutputFileHeader;
-	uint32 BlockSize;
-	uint32 i, LenOut, TmpBlckLen;
-	uint8* BwtInBuffer;
-	uint32 j, NumZeroes;
-	uint16 NxVal;
-	uint8* InputBuffer, * OutputBuffer;
-	register uint32 Left, Right, Middle;
+	uint32_t BlockSize;
+	uint32_t i, LenOut, TmpBlckLen;
+	uint8_t* BwtInBuffer;
+	uint32_t j, NumZeroes;
+	uint16_t NxVal;
+	uint8_t* InputBuffer, * OutputBuffer;
+	register uint32_t Left, Right, Middle;
 
 
 	InputFileHeader = fopen(InFileName, "rb");
 	if (InputFileHeader == NULL) return 2;
-	InputFileSize = (uint32)filesize(InputFileHeader);
+	InputFileSize = (uint32_t)filesize(InputFileHeader);
 
 	if (InputFileSize == 0) {
 		fclose(InputFileHeader);
@@ -134,7 +132,7 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 	}
 
 
-	BlockSize = ((uint32)BlockSizeCode) * 100 * 1024;
+	BlockSize = ((uint32_t)BlockSizeCode) * 100 * 1024;
 
 	if (StdOutOn)
 		OutputFileHeader = bfopen_as_stdout();
@@ -152,8 +150,8 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 	/* setup 'preprocess' buffers, if necessary */
 	if (P_ON_OFF != 0) {
 		/* allocate memory for hash tables */
-		HashTable4 = (uint8**)malloc(HTSIZE4 * (uint32)sizeof(uint8*));
-		HashTable5 = (uint8**)malloc(HTSIZE5 * (uint32)sizeof(uint8*));
+		HashTable4 = (uint8_t**)malloc(HTSIZE4 * (uint32_t)sizeof(uint8_t*));
+		HashTable5 = (uint8_t**)malloc(HTSIZE5 * (uint32_t)sizeof(uint8_t*));
 
 		if (HashTable4 == NULL || HashTable5 == NULL) {
 			if (HashTable4 != NULL) free(HashTable4);
@@ -170,9 +168,9 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 
 	/* setup input block buffer, that output && indexes for BWT */
 
-	InputBuffer = (uint8*)malloc(BlockSize * 2);
-	OutputBuffer = (uint8*)malloc(BlockSize * 2);
-	idxs = (uint32*)malloc(BlockSize * 2 * (uint32)sizeof(uint32));
+	InputBuffer = (uint8_t*)malloc(BlockSize * 2);
+	OutputBuffer = (uint8_t*)malloc(BlockSize * 2);
+	idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
 
 	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL ||
 		!SetupBwtBuffers()) {
@@ -216,18 +214,18 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 		if (LenOut >= BWT_LenThreshold) {
 			/* do BWT, mtf, 0-1 coding , arithmetic coding */
 
-			idxs = (uint32*)malloc(LenOut * (uint32)sizeof(uint32));
+			idxs = (uint32_t*)malloc(LenOut * (uint32_t)sizeof(uint32_t));
 			TmpBlckLen = BWT_TRANSFORM(LenOut, BwtInBuffer);
 
 			EncodeChar(1, OutputFileHeader, &StandardWriter, 257);
 
-			EncodeChar((int16)((TmpBlckLen >> 24) & 0xff), OutputFileHeader,
+			EncodeChar((int16_t)((TmpBlckLen >> 24) & 0xff), OutputFileHeader,
 				&StandardWriter, 257);
-			EncodeChar((int16)((TmpBlckLen >> 16) & 0xff), OutputFileHeader,
+			EncodeChar((int16_t)((TmpBlckLen >> 16) & 0xff), OutputFileHeader,
 				&StandardWriter, 257);
-			EncodeChar((int16)((TmpBlckLen >> 8) & 0xff), OutputFileHeader,
+			EncodeChar((int16_t)((TmpBlckLen >> 8) & 0xff), OutputFileHeader,
 				&StandardWriter, 257);
-			EncodeChar((int16)(TmpBlckLen & 0xff), OutputFileHeader,
+			EncodeChar((int16_t)(TmpBlckLen & 0xff), OutputFileHeader,
 				&StandardWriter, 257);
 
 			/* do mtf, 0-1, ari */
@@ -256,11 +254,11 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 					if (PyramidTable[Left] == NumZeroes) Left++;
 					NumZeroes -= PyramidTable[Left - 1];
 
-					do EncodeChar((int16)(NumZeroes & 1), OutputFileHeader,
+					do EncodeChar((int16_t)(NumZeroes & 1), OutputFileHeader,
 						&Code12Out, 258); while (NumZeroes >>= 1, --Left);
 				}
 				if (NxVal != 0) {
-					EncodeChar((int16)(NxVal + 1), OutputFileHeader,
+					EncodeChar((int16_t)(NxVal + 1), OutputFileHeader,
 						&Code12Out, 258);
 				}
 				j++;
@@ -271,7 +269,7 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 		else {
 			EncodeChar(0, OutputFileHeader, &StandardWriter, 257);
 			for (j = 0; j < LenOut; j++)
-				EncodeChar((int16)BwtInBuffer[j], OutputFileHeader, &StandardWriter, 257);
+				EncodeChar((int16_t)BwtInBuffer[j], OutputFileHeader, &StandardWriter, 257);
 			EncodeChar(256, OutputFileHeader, &StandardWriter, 257);
 		}
 	}
@@ -293,18 +291,18 @@ int32 CompressFile(char* InFileName, char* OutFileName, uint8 P_ON_OFF,
 	return 0;
 }
 
-int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
-	uint32 InputFileSize;
+int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
+	uint32_t InputFileSize;
 	bfile* InputFileHeader;
 	FILE* OutputFileHeader;
-	uint32 BlockSize;
-	uint32 i, LenOut, TmpBlckLen;
-	uint8* BwtInBuffer;
-	uint32 j, NumZeroes;
-	uint16 NxVal;
-	uint8* InputBuffer, * OutputBuffer;
-	uint32 TmpSum;
-	uint32 StringPos;
+	uint32_t BlockSize;
+	uint32_t i, LenOut, TmpBlckLen;
+	uint8_t* BwtInBuffer;
+	uint32_t j, NumZeroes;
+	uint16_t NxVal;
+	uint8_t* InputBuffer, * OutputBuffer;
+	uint32_t TmpSum;
+	uint32_t StringPos;
 
 	InputFileHeader = bfopen(InFileName, "rb");
 	if (InputFileHeader == NULL) return 2;
@@ -315,7 +313,7 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 	}
 
 	InputFileSize = Header.UncompressedLen;
-	BlockSize = ((uint32)(Header.SystemFlag & 0x7f)) * 100 * 1024;
+	BlockSize = ((uint32_t)(Header.SystemFlag & 0x7f)) * 100 * 1024;
 	if (StdOutOn) OutputFileHeader = stdout;
 	else OutputFileHeader = fopen(Header.FileName, "wb");
 
@@ -328,8 +326,8 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 	/* setup 'preprocess' buffers, if necessary */
 	if ((Header.SystemFlag & 0x80) != 0) {
 		/* allocate memory for hash tables */
-		HashTable4 = (uint8**)malloc(HTSIZE4 * (uint32)sizeof(uint8*));
-		HashTable5 = (uint8**)malloc(HTSIZE5 * (uint32)sizeof(uint8*));
+		HashTable4 = (uint8_t**)malloc(HTSIZE4 * (uint32_t)sizeof(uint8_t*));
+		HashTable5 = (uint8_t**)malloc(HTSIZE5 * (uint32_t)sizeof(uint8_t*));
 
 		if (HashTable4 == NULL || HashTable5 == NULL) {
 			if (HashTable4 != NULL) free(HashTable4);
@@ -345,9 +343,9 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 
 	/* setup input block buffer, that output && indexes for BWT */
 
-	InputBuffer = (uint8*)malloc(BlockSize * 2);
-	OutputBuffer = (uint8*)malloc(BlockSize * 2);
-	idxs = (uint32*)malloc(BlockSize * 2 * (uint32)sizeof(uint32));
+	InputBuffer = (uint8_t*)malloc(BlockSize * 2);
+	OutputBuffer = (uint8_t*)malloc(BlockSize * 2);
+	idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
 
 	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL ||
 		!SetupBwtBuffers()) {
@@ -403,7 +401,7 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 
 						TmpSum = 0; j = 1; NumZeroes = 0;
 					}
-					OutputBuffer[LenOut++] = (uint8)GetByMtfPosition(NxVal - 1);
+					OutputBuffer[LenOut++] = (uint8_t)GetByMtfPosition(NxVal - 1);
 				}
 
 			if (NumZeroes > 0) {
@@ -412,7 +410,7 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 					OutputBuffer[LenOut++] = GetByMtfPosition(0);
 			}
 
-			idxs = (uint32*)malloc(LenOut * (uint32)sizeof(uint32));
+			idxs = (uint32_t*)malloc(LenOut * (uint32_t)sizeof(uint32_t));
 			// unbwt
 			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer);
 			free(idxs);
@@ -420,7 +418,7 @@ int32 DeCompressFile(char* InFileName, uint8 StdOutOn) {
 		else {
 			while ((NxVal = DecodeChar(InputFileHeader,
 				&StandardWriter, 257)) != 256) {
-				OutputBuffer[LenOut++] = (uint8)NxVal;
+				OutputBuffer[LenOut++] = (uint8_t)NxVal;
 			}
 			BwtInBuffer = OutputBuffer; OutputBuffer = InputBuffer;
 			InputBuffer = BwtInBuffer;
@@ -476,7 +474,7 @@ char ProcessFile[257], OutputFile[257];
 
 void main(int ArgsNum, char** ArgsValue) {
 	int number;
-	int32 ErrorCode, i, j;
+	int32_t ErrorCode, i, j;
 	char* p;
 	enum ErrorsVariants Err;
 
@@ -554,8 +552,8 @@ void main(int ArgsNum, char** ArgsValue) {
 	if (!d_key) {
 		strcpy(OutputFile, ProcessFile);
 		strcat(OutputFile, ".zbb");
-		ErrorCode = CompressFile(ProcessFile, OutputFile, (uint8)p_key,
-			(uint8)b_key, (uint8)c_key);
+		ErrorCode = CompressFile(ProcessFile, OutputFile, (uint8_t)p_key,
+			(uint8_t)b_key, (uint8_t)c_key);
 		if (!ErrorCode && !c_key) {
 			float ss1, ss2; FILE* fpn;
 			fpn = fopen(ProcessFile, "rb");
@@ -570,7 +568,7 @@ void main(int ArgsNum, char** ArgsValue) {
 		}
 	}
 	else {
-		ErrorCode = DeCompressFile(ProcessFile, (uint8)c_key);
+		ErrorCode = DeCompressFile(ProcessFile, (uint8_t)c_key);
 		if (!ErrorCode)
 			fprintf(stderr, "\nArchive file \"%s\" was successfully processed\n",
 				ProcessFile);

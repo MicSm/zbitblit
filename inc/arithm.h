@@ -1,6 +1,6 @@
 #pragma once
 
-#include "inc/mtypes.h"
+#include <stdint.h>
 #include "inc/mio.h"
 
 /* our alphabet */
@@ -9,19 +9,19 @@
 
 typedef struct symb
 {
-	int16  c2s[MAX_CHAR], s2c[MAX_CHAR + 1];
-	uint16 sf[MAX_CHAR + 1], scf[MAX_CHAR + 1];
+	int16_t  c2s[MAX_CHAR], s2c[MAX_CHAR + 1];
+	uint16_t sf[MAX_CHAR + 1], scf[MAX_CHAR + 1];
 } SYMB;
 
 /* Initialize model */
-void StartModel(SYMB* ptr, int16 n_char);
+void StartModel(SYMB* ptr, int16_t n_char);
 
 /* encode current char */
-void EncodeChar(int16 ch, bfile* fil, SYMB* ptr, int16 n_char);
+void EncodeChar(int16_t ch, bfile* fil, SYMB* ptr, int16_t n_char);
 
 /* must be performed when end of stream */
 void EncodeEnd(bfile* fil);
 
 void StartDecode(bfile* fil);
 
-int16 DecodeChar(bfile* fil, SYMB* ptr, int16 n_char);
+int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char);

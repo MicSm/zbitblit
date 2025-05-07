@@ -1,25 +1,25 @@
 #include "inc/mtf.h"
 
-uint16 MtfLinks[256];
-uint16 HeadPtr;
+uint16_t MtfLinks[256];
+uint16_t HeadPtr;
 
-uint8* DeMtfArray;
+uint8_t* DeMtfArray;
 
 void MtfSetup(void) {
-	uint16 i;
+	uint16_t i;
 	HeadPtr = 0;
 	for (i = 0; i < 256; i++)
-		MtfLinks[i] = (uint16)(i + 1);
+		MtfLinks[i] = (uint16_t)(i + 1);
 }
 
 void DeMtfSetup(void) {
-	uint16 i;
-	DeMtfArray = (uint8*)MtfLinks;
-	for (i = 0; i < 256; i++) DeMtfArray[i] = (uint8)i;
+	uint16_t i;
+	DeMtfArray = (uint8_t*)MtfLinks;
+	for (i = 0; i < 256; i++) DeMtfArray[i] = (uint8_t)i;
 }
 
-uint16 GetMtfValue(uint16 InValue) {
-	uint16 SkippedNums, p, PredPtr;
+uint16_t GetMtfValue(uint16_t InValue) {
+	uint16_t SkippedNums, p, PredPtr;
 
 	SkippedNums = 0;
 	p = HeadPtr;
@@ -36,9 +36,9 @@ uint16 GetMtfValue(uint16 InValue) {
 	return SkippedNums;
 }
 
-uint8 GetByMtfPosition(uint8 Position) {
-	uint8 Result;
-	uint8 i;
+uint8_t GetByMtfPosition(uint8_t Position) {
+	uint8_t Result;
+	uint8_t i;
 
 	Result = DeMtfArray[Position];
 	if (Position != 0) {

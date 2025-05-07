@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdio.h>
-#include "mtypes.h"
+#include <stdint.h>
 
 /* defines buffered i/o */
 #define B_I_O
@@ -11,24 +11,24 @@
 typedef struct
 {
 	FILE* file;       /* for stream I/O */
-	uint32  rbuf;   /* read bit buffer */
-	uint8  rcnt;       /* read bit count */
-	uint32  wbuf;   /* write bit buffer */
-	uint8  wcnt;       /* write bit count */
+	uint32_t  rbuf;   /* read bit buffer */
+	uint8_t  rcnt;       /* read bit count */
+	uint32_t  wbuf;   /* write bit buffer */
+	uint8_t  wcnt;       /* write bit count */
 #ifdef B_I_O
-	uint8 buff[SBUFF];
+	uint8_t buff[SBUFF];
 #endif
 } bfile;
 
-int32 filesize(FILE* tmp__);
+int32_t filesize(FILE* tmp__);
 
 bfile* bfopen_as_stdout(void);
 
 bfile* bfopen(char* name, char* mode);
 
-uint8 bfread(bfile* bf);
+uint8_t bfread(bfile* bf);
 
-void bfwrite(uint8 bit, bfile* bf);
+void bfwrite(uint8_t bit, bfile* bf);
 
 void w_bfclose(bfile* bf);
 
