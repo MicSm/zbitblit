@@ -10,10 +10,10 @@
 #include "inc/bwt.h"
 #include "inc/sort3.h"
 
-uint32_t* SBck, * SBm;
+static uint32_t* SBck, * SBm;
 uint32_t* idxs;
-uint32_t v[256];
-uint8_t ord[256];
+static uint32_t v[256];
+static uint8_t ord[256];
 
 uint32_t ScanLen;
 uint8_t* ScanBuf;
