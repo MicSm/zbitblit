@@ -1,3 +1,5 @@
+#pragma once
+
 #include "mtypes.h"
 
 uint8 ArcIdentifier[12]={0x55,0x2e,0x3d,0xa5,43,54,34,72,11,22,15,65};

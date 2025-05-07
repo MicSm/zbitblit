@@ -4,14 +4,12 @@
 */
 
 #include <stdlib.h>
-#include "mtypes.h"
+#include "inc/lzp_prep.h"
 
 uint8 **HashTable4, **HashTable5;
-#define HTSIZE4 65536UL
-#define HTSIZE5 32768UL
 
-uint32 HashFunction4(register uint32 index, register uint8 *PTR) {
-register uint32 x;
+static uint32 HashFunction4(uint32 index, uint8 *PTR) {
+uint32 x;
 
  x=(((uint32)PTR[index-4])<<24) | (((uint32)PTR[index-3])<<16) |
    (((uint32)PTR[index-2])<<8) | (((uint32)PTR[index-1]));
@@ -19,8 +17,8 @@ register uint32 x;
  return x&(HTSIZE4-1);
 }
 
-uint32 HashFunction5(register uint32 index, register uint8 *PTR) {
-register uint32 x;
+static uint32 HashFunction5(uint32 index, uint8 *PTR) {
+uint32 x;
 
  x=(((uint32)PTR[index-4])<<24) | (((uint32)PTR[index-3])<<16) |
    (((uint32)PTR[index-2]))<<8 | (((uint32)PTR[index-1]));
@@ -31,9 +29,7 @@ register uint32 x;
 /* You can modify this const and get better compression */
 #define LowerLimit 38
 
-void OutPutLength(register uint32 OutPutLength,
-                         register uint8 *OutBuffer,
-                         register uint32 *PBuffer) {
+static void OutPutLength(uint32 OutPutLength, uint8 *OutBuffer, uint32 *PBuffer) {
  while (OutPutLength>254) {
        OutBuffer[(*PBuffer)++]=255;
        OutPutLength-=255;
@@ -41,9 +37,8 @@ void OutPutLength(register uint32 OutPutLength,
  OutBuffer[(*PBuffer)++]=(uint8)OutPutLength;
 }
 
-uint32 GetLength(register uint8 *InputBuffer,
-                        register uint32 *PBuff) {
-register uint32 Result;
+static uint32 GetLength(uint8 *InputBuffer, uint32 *PBuff) {
+uint32 Result;
 
  Result=0;
  while (Result+=(uint32)InputBuffer[*PBuff],InputBuffer[(*PBuff)++]==255);
@@ -61,10 +56,10 @@ uint32 i;
 uint32 LZP_PREPROCESS(uint8 *InData, uint8 *OutData, uint32 InLength) {
 uint32 i,CommonLength;
 uint32 OutLength;
-register uint32 HashIndex4,HashIndex5;
-register uint8 *Pointer4, *Pointer5;
+uint32 HashIndex4,HashIndex5;
+uint8 *Pointer4, *Pointer5;
 uint32 Pointer;
-register uint8 *PastPointer;
+uint8 *PastPointer;
 
  /* send 5 bytes to output */
  OutLength=0;
@@ -118,10 +113,10 @@ register uint8 *PastPointer;
 uint32 UnPreprocess(uint8 *InData, uint8 *OutData, uint32 InLength) {
 uint32 i,CommonLength;
 uint32 OutLength;
-register uint32 HashIndex4,HashIndex5;
-register uint8 *Pointer4, *Pointer5;
+uint32 HashIndex4,HashIndex5;
+uint8 *Pointer4, *Pointer5;
 uint32 Pointer;
-register uint8 *PastPointer;
+uint8 *PastPointer;
 
  /* send 5 bytes to output */
  OutLength=0;

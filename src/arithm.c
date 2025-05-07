@@ -1,4 +1,4 @@
-#include "mio.h"
+#include "inc/arithm.h"
 /********** Adaptive Arithmetic Compression **********/
 
 #define M 15
@@ -13,19 +13,8 @@
 #define Q4  (4 * Q1)
 #define MAX_CUM (Q1 - 1)
 
-
-/* our alphabet */
-/* character code = 0, 1, ..., N_CHAR - 1 */
-#define MAX_CHAR 258
-
 static uint32 low = 0, high = Q4, value = 0;
 static int16  shifts = 0; /* counts for magnifying low and high around Q2 */
-
-typedef struct symb {
-          int16  c2s[MAX_CHAR], s2c[MAX_CHAR + 1];
-          uint16 sf[MAX_CHAR + 1], scf[MAX_CHAR + 1];
-} SYMB;
-
 
 /* Initialize model */
 void StartModel(SYMB *ptr, int16 n_char) {
@@ -42,7 +31,7 @@ int16 ch, sym;
 }
 
 /* update adaptive model */
-void UpdateModel(int sym, SYMB *ptr, int16 n_char) {
+static void UpdateModel(int sym, SYMB *ptr, int16 n_char) {
 int16 i, c, ch_i, ch_sym;
 
  if (ptr->scf[0] >= MAX_CUM) { /* if overflow */
@@ -62,7 +51,7 @@ int16 i, c, ch_i, ch_sym;
 }
 
 /* Output 1 bit, followed by its complements */
-void Output(uint8 bit, bfile *fil) {
+static void Output(uint8 bit, bfile *fil) {
  bfwrite(bit!=0,fil);
  for (;shifts>0;shifts--) bfwrite(bit!=1,fil);
 }
@@ -93,7 +82,7 @@ void EncodeEnd(bfile *fil) {
  Output(low<Q1?0:1,fil);
 }
 
-int16 BinarySearchSym(register uint16 x, SYMB *ptr, int16 n_char) {
+static int16 BinarySearchSym(register uint16 x, SYMB *ptr, int16 n_char) {
 int16 i, j, k;
 
  i = 1; j = n_char;

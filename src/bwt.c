@@ -5,9 +5,9 @@
    bzip.
 */
 
-#include <stdio.h>
-#include "mtypes.h"
-#include "sort3.c"
+#include <stdlib.h>
+#include "inc/bwt.h"
+#include "inc/sort3.h"
 
 uint32 *SBck,*SBm;
 uint32 *idxs;
@@ -38,7 +38,7 @@ void FreeBwtBuffers(void) {
  free(SBm);
 }
 
-int fcmp1(uint8 a, uint8 b) {
+static int fcmp1(uint8 a, uint8 b) {
 uint32 elemL=v[a],elemR=v[b];
 
  if (elemL<elemR) return -1;
@@ -46,8 +46,8 @@ uint32 elemL=v[a],elemR=v[b];
  return 0;
 }
 
-int fcmp2(uint32 a, uint32 b) {
-register uint32 c;
+static int fcmp2(uint32 a, uint32 b) {
+uint32 c;
 
  c=ScanLen;
  while (ScanBuf[a]==ScanBuf[b] && c) {
@@ -63,11 +63,11 @@ register uint32 c;
 }
 
 uint32 BWT_TRANSFORM(uint32 len, uint8 *pb) {
-register uint32 i,ptr;
-register uint32 i1,j,k;
+uint32 i,ptr;
+uint32 i1,j,k;
 uint8 mask[256],st_mask[256];
 
-register uint16 vtmp0;
+uint16 vtmp0;
 
  ScanLen=len-2;
  ScanBuf=pb;
@@ -135,10 +135,9 @@ register uint16 vtmp0;
  return i;
 }
 
-void UnBWT(register uint32 StrPos, uint32 len,
-          uint8 *InputBuffer, uint8 *OutputBuffer) {
+void UnBWT(uint32 StrPos, uint32 len, uint8 *InputBuffer, uint8 *OutputBuffer) {
+int32 i;
 
- register int32 i;
  /* clean buffer */
  for (i=0;i<256;i++)
      v[i]=0;

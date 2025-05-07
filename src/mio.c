@@ -1,13 +1,6 @@
-#ifndef __mio_h
-#define __mio_h
-
 #include <stdlib.h>
 #include <stdio.h>
-#include "mtypes.h"
-
-/* defines buffered i/o */
-#define B_I_O
-
+#include "inc/mio.h"
 
 int32 filesize(FILE *tmp__) {
 int32 tmpSize__;
@@ -16,19 +9,6 @@ int32 tmpSize__;
  fseek(tmp__, 0L, SEEK_SET);
  return tmpSize__;
 }
-
-#define SBUFF 4096
-
-typedef struct  {
-      FILE *file;       /* for stream I/O */
-      uint32  rbuf;   /* read bit buffer */
-      uint8  rcnt;       /* read bit count */
-      uint32  wbuf;   /* write bit buffer */
-      uint8  wcnt;       /* write bit count */
-#ifdef B_I_O
-      uint8 buff[SBUFF];
-#endif
-} bfile;
 
 bfile *bfopen_as_stdout(void) {
 bfile *bf;
@@ -90,9 +70,9 @@ void bfwrite(uint8 bit, bfile *bf) {
       bf->wbuf |= (uint32)bit;
 }
 
+void w_bfclose(bfile *bf) {
 uint8 arr[4];
 
-void w_bfclose(bfile *bf) {
       bf->wbuf <<= 32-bf->wcnt;
       arr[0]=((bf->wbuf)>>24)&0xff;
       arr[1]=((bf->wbuf)>>16)&0xff;
@@ -107,6 +87,8 @@ void w_bfclose(bfile *bf) {
 }
 
 void w_bfclose_as_stdout(bfile *bf) {
+uint8 arr[4];
+
       bf->wbuf <<= 32-bf->wcnt;
       arr[0]=((bf->wbuf)>>24)&0xff;
       arr[1]=((bf->wbuf)>>16)&0xff;
@@ -134,5 +116,3 @@ void r_bfclose(bfile *bf) {
       fclose(bf->file);
       free(bf);
 }
-
-#endif

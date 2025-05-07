@@ -1,15 +1,14 @@
-#ifndef _sort3_h
-#define _sort3_h
+#include "inc/sort3.h"
 
 long stack_start[32], stack_end[32];
 
 #define SWP(xx,yy) { swp=base[xx];base[xx]=base[yy];base[yy]=swp; }
 
-static void qsort4(unsigned long *base, long nelem,
+void qsort4(unsigned long *base, long nelem,
             int (*fcmp)(unsigned long,  unsigned long)) {
 
-register long left, right, num, j, i, middle, stack_on;
-register unsigned long swp;
+long left, right, num, j, i, middle, stack_on;
+unsigned long swp;
 
  stack_on = 0 ;
  stack_start[0] = 0 ;
@@ -78,11 +77,11 @@ register unsigned long swp;
  }
 }
 
-static void qsort1(unsigned char *base, long nelem,
+void qsort1(unsigned char *base, long nelem,
             int (*fcmp)(unsigned char,  unsigned char)) {
 
-register long left, right, num, j, i, middle, stack_on;
-register unsigned char swp;
+long left, right, num, j, i, middle, stack_on;
+unsigned char swp;
 
  stack_on = 0 ;
  stack_start[0] = 0 ;
@@ -150,5 +149,3 @@ register unsigned char swp;
       }
  }
 }
-
-#endif
