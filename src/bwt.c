@@ -39,12 +39,10 @@ void FreeBwtBuffers(void) {
 	free(SBm);
 }
 
-static int fcmp1(uint8_t a, uint8_t b) {
-	uint32_t elemL = v[a], elemR = v[b];
+static int fcmp1(const void* lhs, const void* rhs) {
+	int64_t elemL = (int64_t)v[*(uint8_t*)lhs], elemR = (int64_t)v[*(uint8_t*)rhs];
 
-	if (elemL < elemR) return -1;
-	else if (elemL > elemR) return 1;
-	return 0;
+	return elemL - elemR;
 }
 
 static int fcmp2(uint32_t a, uint32_t b) {
@@ -93,7 +91,7 @@ uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb) {
 		v[i] = SBck[(i + 1) << 8] - SBck[i << 8];
 		ord[i] = (uint8_t)i;
 	}
-	qsort1(ord, 256, fcmp1);
+	qsort(ord, 256, sizeof(*ord), fcmp1);
 
 	/* now, begin sort buckets */
 	for (i = 0; i < 256; i++) mask[i] = 0;
