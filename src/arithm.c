@@ -1,6 +1,11 @@
 #include "inc/arithm.h"
 /********** Adaptive Arithmetic Compression **********/
 
+/*  If you are not familiar with arithmetic compression, you should read
+		I. E. Witten, R. M. Neal, and J. G. Cleary,
+			Communications of the ACM, Vol. 30, pp. 520-540 (1987),
+	from which much have been borrowed.  */
+
 #define M 15
 
 /* Q1 (= 2 to the M) must be sufficiently large, but not so
