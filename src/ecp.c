@@ -131,7 +131,6 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 		return 1;
 	}
 
-
 	BlockSize = ((uint32_t)BlockSizeCode) * 100 * 1024;
 
 	if (StdOutOn)
@@ -172,8 +171,8 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	OutputBuffer = (uint8_t*)malloc(BlockSize * 2);
 	idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
 
-	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL ||
-		!SetupBwtBuffers()) {
+	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL || !SetupBwtBuffers())
+	{
 		if (InputBuffer != NULL) free(InputBuffer);
 		if (OutputBuffer != NULL) free(OutputBuffer);
 		if (idxs != NULL) free(idxs);
@@ -183,23 +182,25 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 		}
 		fclose(InputFileHeader);
 		if (StdOutOn) w_bfclose_as_stdout(OutputFileHeader);
-		else {
+		else
+		{
 			w_bfclose(OutputFileHeader);
 			remove(OutFileName);
 		}
 		return 3;
 	}
-	free(idxs);
 	StartModel(&Code12Out, 258);
 	StartModel(&StandardWriter, 257);
 
 	i = InputFileSize;
 	MtfSetup();
-	while (i != 0) {
+	while (i != 0)
+	{
 		TmpBlckLen = (i >= BlockSize ? BlockSize : i);
 		fread(InputBuffer, TmpBlckLen, 1, InputFileHeader);
 		i -= TmpBlckLen;
-		if (P_ON_OFF != 0 && TmpBlckLen >= LZP_LenThreshold) {
+		if (P_ON_OFF != 0 && TmpBlckLen >= LZP_LenThreshold)
+		{
 			/* then do preprocessing */
 			CleanTabs();
 			LenOut = LZP_PREPROCESS(InputBuffer, OutputBuffer, TmpBlckLen);
@@ -213,8 +214,6 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 
 		if (LenOut >= BWT_LenThreshold) {
 			/* do BWT, mtf, 0-1 coding , arithmetic coding */
-
-			idxs = (uint32_t*)malloc(LenOut * (uint32_t)sizeof(uint32_t));
 			TmpBlckLen = BWT_TRANSFORM(LenOut, BwtInBuffer);
 
 			EncodeChar(1, OutputFileHeader, &StandardWriter, 257);
@@ -263,7 +262,6 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 				}
 				j++;
 			}
-			free(idxs);
 			EncodeChar(257, OutputFileHeader, &Code12Out, 258);
 		}
 		else {
@@ -276,7 +274,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	EncodeEnd(OutputFileHeader);
 
 	// free mem, close files
-
+	free(idxs);
 	if (P_ON_OFF != 0) {
 		free(HashTable4);
 		free(HashTable5);
@@ -363,7 +361,6 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 		}
 		return 3;
 	}
-	free(idxs);
 	StartModel(&Code12Out, 258);
 	StartModel(&StandardWriter, 257);
 	StartDecode(InputFileHeader);
@@ -410,10 +407,8 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 					OutputBuffer[LenOut++] = GetByMtfPosition(0);
 			}
 
-			idxs = (uint32_t*)malloc(LenOut * (uint32_t)sizeof(uint32_t));
 			// unbwt
 			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer);
-			free(idxs);
 		}
 		else {
 			while ((NxVal = DecodeChar(InputFileHeader,
@@ -435,7 +430,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 	}
 
 	// free mem, close files
-
+	free(idxs);
 	if ((Header.SystemFlag & 0x80) != 0) {
 		free(HashTable4);
 		free(HashTable5);
