@@ -4,11 +4,51 @@
 */
 
 #include <stdlib.h>
+#include <string.h>
+
 #include "inc/lzp_prep.h"
 
-uint8_t** HashTable4, ** HashTable5;
+#define HTSIZE4 ((size_t)65536)
+#define HTSIZE5 ((size_t)32768)
 
-static uint32_t HashFunction4(uint32_t index, uint8_t* PTR) {
+static uint8_t** HashTable4 = NULL, ** HashTable5 = NULL;
+
+int CreateHashTables(void)
+{
+	HashTable4 = (uint8_t**)malloc(HTSIZE4 * sizeof(uint8_t*));
+	if (HashTable4 == NULL)
+	{
+		return 0;
+	}
+
+	HashTable5 = (uint8_t**)malloc(HTSIZE5 * sizeof(uint8_t*));
+	if (HashTable5 == NULL)
+	{
+		free(HashTable4);
+		HashTable4 = NULL;
+		return 0;
+	}
+	return 1;
+}
+
+void DestructHashTables(void)
+{
+	free(HashTable4);
+	HashTable4 = NULL;
+
+	free(HashTable5);
+	HashTable5 = NULL;
+}
+
+/* clean hash tables */
+void CleanHashTables(void)
+{
+	memset(HashTable4, 0, HTSIZE4 * sizeof(uint8_t*));
+	memset(HashTable5, 0, HTSIZE5 * sizeof(uint8_t*));
+}
+
+static uint32_t HashFunction4(uint32_t index, uint8_t* PTR)
+{
 	uint32_t x;
 
 	x = (((uint32_t)PTR[index - 4]) << 24) | (((uint32_t)PTR[index - 3]) << 16) |
@@ -17,7 +57,8 @@ static uint32_t HashFunction4(uint32_t index, uint8_t* PTR) {
 	return x & (HTSIZE4 - 1);
 }
 
-static uint32_t HashFunction5(uint32_t index, uint8_t* PTR) {
+static uint32_t HashFunction5(uint32_t index, uint8_t* PTR)
+{
 	uint32_t x;
 
 	x = (((uint32_t)PTR[index - 4]) << 24) | (((uint32_t)PTR[index - 3]) << 16) |
@@ -29,7 +70,8 @@ static uint32_t HashFunction5(uint32_t index, uint8_t* PTR) {
 /* You can modify this const and get better compression */
 #define LowerLimit 38
 
-static void OutPutLength(uint32_t OutPutLength, uint8_t* OutBuffer, uint32_t* PBuffer) {
+static void OutPutLength(uint32_t OutPutLength, uint8_t* OutBuffer, uint32_t* PBuffer)
+{
 	while (OutPutLength > 254) {
 		OutBuffer[(*PBuffer)++] = 255;
 		OutPutLength -= 255;
@@ -37,7 +79,8 @@ static void OutPutLength(uint32_t OutPutLength, uint8_t* OutBuffer, uint32_t* PB
 	OutBuffer[(*PBuffer)++] = (uint8_t)OutPutLength;
 }
 
-static uint32_t GetLength(uint8_t* InputBuffer, uint32_t* PBuff) {
+static uint32_t GetLength(uint8_t* InputBuffer, uint32_t* PBuff)
+{
 	uint32_t Result;
 
 	Result = 0;
@@ -45,15 +88,8 @@ static uint32_t GetLength(uint8_t* InputBuffer, uint32_t* PBuff) {
 	return Result;
 }
 
-/* clean hash tables */
-void CleanTabs(void) {
-	uint32_t i;
-
-	for (i = 0; i < HTSIZE4; i++) HashTable4[i] = NULL;
-	for (i = 0; i < HTSIZE5; i++) HashTable5[i] = NULL;
-}
-
-uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength) {
+uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength)
+{
 	uint32_t i, CommonLength;
 	uint32_t OutLength;
 	uint32_t HashIndex4, HashIndex5;
@@ -111,7 +147,8 @@ uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength) {
 	return OutLength;
 }
 
-uint32_t UnPreprocess(uint8_t* InData, uint8_t* OutData, uint32_t InLength) {
+uint32_t UnPreprocess(uint8_t* InData, uint8_t* OutData, uint32_t InLength)
+{
 	uint32_t i, CommonLength;
 	uint32_t OutLength;
 	uint32_t HashIndex4, HashIndex5;

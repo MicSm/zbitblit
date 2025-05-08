@@ -150,13 +150,8 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 
 	/* setup 'preprocess' buffers, if necessary */
 	if (P_ON_OFF != 0) {
-		/* allocate memory for hash tables */
-		HashTable4 = (uint8_t**)malloc(HTSIZE4 * (uint32_t)sizeof(uint8_t*));
-		HashTable5 = (uint8_t**)malloc(HTSIZE5 * (uint32_t)sizeof(uint8_t*));
 
-		if (HashTable4 == NULL || HashTable5 == NULL) {
-			if (HashTable4 != NULL) free(HashTable4);
-			if (HashTable5 != NULL) free(HashTable5);
+		if (!CreateHashTables()) {
 			fclose(InputFileHeader);
 			if (StdOutOn) w_bfclose_as_stdout(OutputFileHeader);
 			else {
@@ -178,9 +173,9 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 		if (InputBuffer != NULL) free(InputBuffer);
 		if (OutputBuffer != NULL) free(OutputBuffer);
 		if (idxs != NULL) free(idxs);
-		if (P_ON_OFF != 0) {
-			free(HashTable4);
-			free(HashTable5);
+		if (P_ON_OFF != 0)
+		{
+			DestructHashTables();
 		}
 		fclose(InputFileHeader);
 		if (StdOutOn) w_bfclose_as_stdout(OutputFileHeader);
@@ -204,7 +199,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 		if (P_ON_OFF != 0 && TmpBlckLen >= LZP_LenThreshold)
 		{
 			/* then do preprocessing */
-			CleanTabs();
+			CleanHashTables();
 			LenOut = LZP_PREPROCESS(InputBuffer, OutputBuffer, TmpBlckLen);
 
 			BwtInBuffer = OutputBuffer;
@@ -277,9 +272,9 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 
 	// free mem, close files
 	free(idxs);
-	if (P_ON_OFF != 0) {
-		free(HashTable4);
-		free(HashTable5);
+	if (P_ON_OFF != 0)
+	{
+		DestructHashTables();
 	}
 	free(InputBuffer);
 	free(OutputBuffer);
@@ -326,13 +321,8 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 
 	/* setup 'preprocess' buffers, if necessary */
 	if ((Header.SystemFlag & 0x80) != 0) {
-		/* allocate memory for hash tables */
-		HashTable4 = (uint8_t**)malloc(HTSIZE4 * (uint32_t)sizeof(uint8_t*));
-		HashTable5 = (uint8_t**)malloc(HTSIZE5 * (uint32_t)sizeof(uint8_t*));
 
-		if (HashTable4 == NULL || HashTable5 == NULL) {
-			if (HashTable4 != NULL) free(HashTable4);
-			if (HashTable5 != NULL) free(HashTable5);
+		if (!CreateHashTables()) {
 			r_bfclose(InputFileHeader);
 			if (!StdOutOn) {
 				fclose(OutputFileHeader);
@@ -354,8 +344,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 		if (OutputBuffer != NULL) free(OutputBuffer);
 		if (idxs != NULL) free(idxs);
 		if ((Header.SystemFlag & 0x80) != 0) {
-			free(HashTable4);
-			free(HashTable5);
+			DestructHashTables();
 		}
 		r_bfclose(InputFileHeader);
 		if (!StdOutOn) {
@@ -422,7 +411,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 			InputBuffer = BwtInBuffer;
 		}
 		if ((Header.SystemFlag & 0x80) != 0 && TmpBlckLen >= LZP_LenThreshold) {
-			CleanTabs();
+			CleanHashTables();
 			LenOut = UnPreprocess(InputBuffer, OutputBuffer, LenOut);
 		}
 		else {
@@ -435,8 +424,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 	// free mem, close files
 	free(idxs);
 	if ((Header.SystemFlag & 0x80) != 0) {
-		free(HashTable4);
-		free(HashTable5);
+		DestructHashTables();
 	}
 	free(InputBuffer);
 	free(OutputBuffer);

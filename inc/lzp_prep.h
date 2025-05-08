@@ -3,12 +3,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-extern uint8_t** HashTable4, ** HashTable5;
-#define HTSIZE4 65536UL
-#define HTSIZE5 32768UL
+/* allocate hashtables */
+int CreateHashTables(void);
 
-/* clean hash tables */
-void CleanTabs(void);
+/* destroy hashtables */
+void DestructHashTables(void);
+
+/* clean hashtables */
+void CleanHashTables(void);
 
 uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength);
 
