@@ -11,7 +11,6 @@
 #include "inc/sort3.h"
 
 static uint32_t* SBck, * SBm;
-uint32_t* idxs;
 static uint32_t v[256];
 static uint8_t ord[256];
 
@@ -21,7 +20,8 @@ uint8_t* ScanBuf;
 #define C_B ((uint32_t)0x7fffffff)
 #define M_B ((uint32_t)0x80000000)
 
-int SetupBwtBuffers(void) {
+int SetupBwtBuffers(void)
+{
 
 	SBck = (uint32_t*)malloc((uint32_t)65537 * (uint32_t)sizeof(uint32_t));
 	SBm = (uint32_t*)malloc((uint32_t)65536 * (uint32_t)sizeof(uint32_t));
@@ -33,19 +33,22 @@ int SetupBwtBuffers(void) {
 	return 0;
 }
 
-void FreeBwtBuffers(void) {
+void FreeBwtBuffers(void)
+{
 
 	free(SBck);
 	free(SBm);
 }
 
-static int fcmp1(const void* lhs, const void* rhs) {
+static int fcmp1(const void* lhs, const void* rhs)
+{
 	int64_t elemL = (int64_t)v[*(uint8_t*)lhs], elemR = (int64_t)v[*(uint8_t*)rhs];
 
 	return elemL - elemR;
 }
 
-static int fcmp2(uint32_t a, uint32_t b) {
+static int fcmp2(uint32_t a, uint32_t b)
+{
 	uint32_t c;
 
 	c = ScanLen;
@@ -61,7 +64,8 @@ static int fcmp2(uint32_t a, uint32_t b) {
 	return 0;
 }
 
-uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb) {
+uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb, uint32_t* idxs)
+{
 	uint32_t i, ptr;
 	uint32_t i1, j, k;
 	uint8_t mask[256], st_mask[256];
@@ -134,7 +138,8 @@ uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb) {
 	return i;
 }
 
-void UnBWT(uint32_t StrPos, uint32_t len, uint8_t* InputBuffer, uint8_t* OutputBuffer) {
+void UnBWT(uint32_t StrPos, uint32_t len, uint8_t* InputBuffer, uint8_t* OutputBuffer, uint32_t* idxs)
+{
 	int32_t i;
 
 	/* clean buffer */

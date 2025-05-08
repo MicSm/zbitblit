@@ -42,14 +42,12 @@ CompressedHeader Header;
 
 /* lempel-ziff prediction engine variables ---------------------*/
 #define LZP_LenThreshold 16
-/* lempel-ziff prediction engine variables ---------------------*/
+
 /* for BWT */
 #define BWT_LenThreshold 8
-/* for BWT */
 
-
-
-void PutHeader(CompressedHeader* Ptr, bfile* OutF) {
+void PutHeader(CompressedHeader* Ptr, bfile* OutF)
+{
 	uint8_t* p;
 
 	fwrite(ArcIdentifier, 12, 1, OutF->file);
@@ -65,7 +63,8 @@ void PutHeader(CompressedHeader* Ptr, bfile* OutF) {
 
 }
 
-int32_t GetHeader(CompressedHeader* Ptr, bfile* InF) {
+int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
+{
 	uint8_t* p;
 	uint8_t ArcRd[12];
 	int16_t c;
@@ -101,15 +100,18 @@ int32_t GetHeader(CompressedHeader* Ptr, bfile* InF) {
 */
 
 
-uint32_t PyramidTable[25] = {
+uint32_t PyramidTable[25] =
+{
 0, 2, 6, 14, 30, 62, 126, 254, 510, 1022, 2046, 4094, 8190, 16382,
 32766, 65534, 131070, 262142, 524286, 1048574, 2097150, 4194302,
-8388606, 16777214, 33554430 };
+8388606, 16777214, 33554430
+};
 
 SYMB StandardWriter, Code12Out;
 
 int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
-	uint8_t BlockSizeCode, uint8_t StdOutOn) {
+	uint8_t BlockSizeCode, uint8_t StdOutOn)
+{
 	uint32_t InputFileSize;
 	FILE* InputFileHeader;
 	bfile* OutputFileHeader;
@@ -169,7 +171,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 
 	InputBuffer = (uint8_t*)malloc(BlockSize * 2);
 	OutputBuffer = (uint8_t*)malloc(BlockSize * 2);
-	idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
+	uint32_t* idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
 
 	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL || !SetupBwtBuffers())
 	{
@@ -214,7 +216,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 
 		if (LenOut >= BWT_LenThreshold) {
 			/* do BWT, mtf, 0-1 coding , arithmetic coding */
-			TmpBlckLen = BWT_TRANSFORM(LenOut, BwtInBuffer);
+			TmpBlckLen = BWT_TRANSFORM(LenOut, BwtInBuffer, idxs);
 
 			EncodeChar(1, OutputFileHeader, &StandardWriter, 257);
 
@@ -289,7 +291,8 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	return 0;
 }
 
-int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
+int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
+{
 	uint32_t InputFileSize;
 	bfile* InputFileHeader;
 	FILE* OutputFileHeader;
@@ -343,7 +346,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 
 	InputBuffer = (uint8_t*)malloc(BlockSize * 2);
 	OutputBuffer = (uint8_t*)malloc(BlockSize * 2);
-	idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
+	uint32_t* idxs = (uint32_t*)malloc(BlockSize * 2 * (uint32_t)sizeof(uint32_t));
 
 	if (InputBuffer == NULL || OutputBuffer == NULL || idxs == NULL ||
 		!SetupBwtBuffers()) {
@@ -408,7 +411,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 			}
 
 			// unbwt
-			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer);
+			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer, idxs);
 		}
 		else {
 			while ((NxVal = DecodeChar(InputFileHeader,
@@ -426,7 +429,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 			BwtInBuffer = OutputBuffer; OutputBuffer = InputBuffer;
 			InputBuffer = BwtInBuffer;
 		}
-		fwrite(OutputBuffer,/*TmpBlckLen*/LenOut, 1, OutputFileHeader);//-----bug
+		fwrite(OutputBuffer, LenOut, 1, OutputFileHeader);
 	}
 
 	// free mem, close files
@@ -444,12 +447,14 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn) {
 	return 0;
 }
 
-enum ErrorsVariants {
+enum ErrorsVariants
+{
 	NoProcessFile, BufSizeWrong, UnknownAction, BadStdout,
 	ZeroFileSize, FileNotOpened, NoMemory, BadKey, NoErr
 };
 
-void ExitWithError(enum ErrorsVariants ErVar) {
+void ExitWithError(enum ErrorsVariants ErVar)
+{
 #define P(a,b) case a : fprintf(stderr,"\n"b"\n"); break;
 	switch (ErVar) {
 		P(BadStdout, "_Can't write to current STDOUT_");
@@ -467,7 +472,8 @@ void ExitWithError(enum ErrorsVariants ErVar) {
 int c_key, p_key, b_key, d_key;
 char ProcessFile[257], OutputFile[257];
 
-void main(int ArgsNum, char** ArgsValue) {
+void main(int ArgsNum, char** ArgsValue)
+{
 	int number;
 	int32_t ErrorCode, i, j;
 	char* p;
