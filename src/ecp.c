@@ -37,6 +37,7 @@
 #include "inc/arithm.h"
 #include "inc/lzp_prep.h"
 #include "inc/bwt.h"
+#include "inc/mtf.h"
 
 CompressedHeader Header;
 
