@@ -39,15 +39,13 @@
 #include "inc/bwt.h"
 #include "inc/mtf.h"
 
-CompressedHeader Header;
-
 /* lempel-ziff prediction engine variables ---------------------*/
 #define LZP_LenThreshold 16
 
 /* for BWT */
 #define BWT_LenThreshold 8
 
-void PutHeader(CompressedHeader* Ptr, bfile* OutF)
+static void PutHeader(CompressedHeader* Ptr, bfile* OutF)
 {
 	uint8_t* p;
 
@@ -64,7 +62,7 @@ void PutHeader(CompressedHeader* Ptr, bfile* OutF)
 
 }
 
-int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
+static int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
 {
 	uint8_t* p;
 	uint8_t ArcRd[12];
@@ -91,7 +89,6 @@ int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
 	return 0;
 }
 
-
 /*
    errors list:
 	  1 - file size is zero
@@ -100,22 +97,21 @@ int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
 	  0 - all o'k
 */
 
-
-uint32_t PyramidTable[25] =
-{
-0, 2, 6, 14, 30, 62, 126, 254, 510, 1022, 2046, 4094, 8190, 16382,
-32766, 65534, 131070, 262142, 524286, 1048574, 2097150, 4194302,
-8388606, 16777214, 33554430
-};
-
-SYMB StandardWriter, Code12Out;
-
-int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
+static int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	uint8_t BlockSizeCode, uint8_t StdOutOn)
 {
+	static const uint32_t PyramidTable[25] =
+	{
+	0, 2, 6, 14, 30, 62, 126, 254, 510, 1022, 2046, 4094, 8190, 16382,
+	32766, 65534, 131070, 262142, 524286, 1048574, 2097150, 4194302,
+	8388606, 16777214, 33554430
+	};
+
 	uint32_t InputFileSize;
+	CompressedHeader Header;
 	FILE* InputFileHeader;
 	bfile* OutputFileHeader;
+	SYMB StandardWriter, Code12Out;
 	uint32_t BlockSize;
 	uint32_t i, LenOut, TmpBlckLen;
 	uint8_t* BwtInBuffer;
@@ -241,7 +237,7 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 				if (NumZeroes != 0) {
 					NumZeroes--;
 
-					Left = 0;//-------
+					Left = 0;
 					Right = 24;
 					while (Left != Right) {
 						Middle = (Left + Right) >> 1;
@@ -287,11 +283,13 @@ int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OFF,
 	return 0;
 }
 
-int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
+static int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 {
 	uint32_t InputFileSize;
+	CompressedHeader Header;
 	bfile* InputFileHeader;
 	FILE* OutputFileHeader;
+	SYMB StandardWriter, Code12Out;
 	uint32_t BlockSize;
 	uint32_t i, LenOut, TmpBlckLen;
 	uint8_t* BwtInBuffer;
@@ -377,8 +375,8 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 			StringPos |= DecodeChar(InputFileHeader, &StandardWriter, 257);
 
 			TmpSum = 0; j = 1; NumZeroes = 0;
-			while ((NxVal = DecodeChar(InputFileHeader,
-				&Code12Out, 258)) != 257)
+			while ((NxVal = DecodeChar(InputFileHeader, &Code12Out, 258)) != 257)
+			{
 				if (NxVal < 2) {
 					if (NxVal != 0) TmpSum |= j;
 					j <<= 1; NumZeroes++;
@@ -393,6 +391,7 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 					}
 					OutputBuffer[LenOut++] = (uint8_t)GetByMtfPosition(NxVal - 1);
 				}
+			}
 
 			if (NumZeroes > 0) {
 				TmpSum += (1 << NumZeroes) - 1;
@@ -404,8 +403,8 @@ int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer, idxs);
 		}
 		else {
-			while ((NxVal = DecodeChar(InputFileHeader,
-				&StandardWriter, 257)) != 256) {
+			while ((NxVal = DecodeChar(InputFileHeader, &StandardWriter, 257)) != 256)
+			{
 				OutputBuffer[LenOut++] = (uint8_t)NxVal;
 			}
 			BwtInBuffer = OutputBuffer; OutputBuffer = InputBuffer;
@@ -442,24 +441,21 @@ enum ErrorsVariants
 	ZeroFileSize, FileNotOpened, NoMemory, BadKey, NoErr
 };
 
-void ExitWithError(enum ErrorsVariants ErVar)
+static void ExitWithError(enum ErrorsVariants ErVar)
 {
-#define P(a,b) case a : fprintf(stderr,"\n"b"\n"); break;
+#define P(a,b) case a : { fprintf(stderr,"\n"b"\n"); } break;
 	switch (ErVar) {
 		P(BadStdout, "_Can't write to current STDOUT_");
-		P(NoProcessFile, "_No file to process_")
-			P(BufSizeWrong, "_Uncorrect buffer size_")
-			P(UnknownAction, "_Unknown action requested_")
-			P(ZeroFileSize, "_File size is zero_")
-			P(FileNotOpened, "_Can't open file_")
-			P(NoMemory, "_No memory for processing_")
-			P(BadKey, "_Unknown key in command line_")
+		P(NoProcessFile, "_No file to process_");
+		P(BufSizeWrong, "_Uncorrect buffer size_");
+		P(UnknownAction, "_Unknown action requested_");
+		P(ZeroFileSize, "_File size is zero_");
+		P(FileNotOpened, "_Can't open file_");
+		P(NoMemory, "_No memory for processing_");
+		P(BadKey, "_Unknown key in command line_");
 	}
 #undef P
 }
-
-int c_key, p_key, b_key, d_key;
-char ProcessFile[257], OutputFile[257];
 
 void main(int ArgsNum, char** ArgsValue)
 {
@@ -467,6 +463,9 @@ void main(int ArgsNum, char** ArgsValue)
 	int32_t ErrorCode, i, j;
 	char* p;
 	enum ErrorsVariants Err;
+
+	int c_key, p_key, b_key, d_key;
+	char ProcessFile[257], OutputFile[257];
 
 	c_key = 0; p_key = 0; b_key = 0; *ProcessFile = 0;
 	d_key = 0;

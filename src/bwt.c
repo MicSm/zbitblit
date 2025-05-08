@@ -10,12 +10,11 @@
 #include "inc/bwt.h"
 #include "inc/sort3.h"
 
-static uint32_t* SBck, * SBm;
+static uint32_t* SBck = NULL, * SBm = NULL;
 static uint32_t v[256];
-static uint8_t ord[256];
 
-uint32_t ScanLen;
-uint8_t* ScanBuf;
+static uint32_t ScanLen;
+static uint8_t* ScanBuf = NULL;
 
 #define C_B ((uint32_t)0x7fffffff)
 #define M_B ((uint32_t)0x80000000)
@@ -69,6 +68,7 @@ uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb, uint32_t* idxs)
 	uint32_t i, ptr;
 	uint32_t i1, j, k;
 	uint8_t mask[256], st_mask[256];
+	uint8_t ord[256];
 
 	uint16_t vtmp0;
 

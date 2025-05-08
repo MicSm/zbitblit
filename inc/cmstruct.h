@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-uint8_t ArcIdentifier[12] = { 0x55,0x2e,0x3d,0xa5,43,54,34,72,11,22,15,65 };
+static uint8_t ArcIdentifier[12] = { 0x55,0x2e,0x3d,0xa5,43,54,34,72,11,22,15,65 };
 
 typedef struct {
 	char FileName[256]; /* name of compressed file */

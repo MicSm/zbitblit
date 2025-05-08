@@ -8,9 +8,10 @@
 
 #define M 15
 
-/* Q1 (= 2 to the M) must be sufficiently large, but not so
-   large as the unsigned long 4 * Q1 * (Q1 - 1) overflows.
-*/
+	/*
+		Q1 (= 2 to the M) must be sufficiently large, but not so
+		   large as the unsigned long 4 * Q1 * (Q1 - 1) overflows.
+	*/
 
 #define Q1  (1UL << M)
 #define Q2  (2 * Q1)
@@ -22,7 +23,8 @@ static uint32_t low = 0, high = Q4, value = 0;
 static int16_t  shifts = 0; /* counts for magnifying low and high around Q2 */
 
 /* Initialize model */
-void StartModel(SYMB* ptr, int16_t n_char) {
+void StartModel(SYMB* ptr, int16_t n_char)
+{
 	int16_t ch, sym;
 	ptr->scf[n_char] = 0;
 	/* define start distribution */
@@ -36,7 +38,8 @@ void StartModel(SYMB* ptr, int16_t n_char) {
 }
 
 /* update adaptive model */
-static void UpdateModel(int sym, SYMB* ptr, int16_t n_char) {
+static void UpdateModel(int sym, SYMB* ptr, int16_t n_char)
+{
 	int16_t i, c, ch_i, ch_sym;
 
 	if (ptr->scf[0] >= MAX_CUM) { /* if overflow */
@@ -56,20 +59,21 @@ static void UpdateModel(int sym, SYMB* ptr, int16_t n_char) {
 }
 
 /* Output 1 bit, followed by its complements */
-static void Output(uint8_t bit, bfile* fil) {
+static void Output(uint8_t bit, bfile* fil)
+{
 	bfwrite(bit != 0, fil);
 	for (; shifts > 0; shifts--) bfwrite(bit != 1, fil);
 }
 
 /* encode current char */
-void EncodeChar(int16_t ch, bfile* fil, SYMB* ptr, int16_t n_char) {
-	int16_t sym;
-	uint32_t range;
+void EncodeChar(int16_t ch, bfile* fil, SYMB* ptr, int16_t n_char)
+{
+	int16_t sym = ptr->c2s[ch];
+	uint32_t range = high - low;
 
-	sym = ptr->c2s[ch];
-	range = high - low;
 	high = low + (range * ptr->scf[sym - 1]) / ptr->scf[0];
 	low += (range * ptr->scf[sym]) / ptr->scf[0];
+
 	for (;;) {
 		if (high <= Q2) Output(0, fil);
 		else if (low >= Q2) { Output(1, fil); low -= Q2; high -= Q2; }
@@ -83,33 +87,35 @@ void EncodeChar(int16_t ch, bfile* fil, SYMB* ptr, int16_t n_char) {
 }
 
 /* must be performed when end of stream */
-void EncodeEnd(bfile* fil) {
+void EncodeEnd(bfile* fil)
+{
 	shifts++;
 	Output(low < Q1 ? 0 : 1, fil);
 }
 
-static int16_t BinarySearchSym(uint16_t x, SYMB* ptr, int16_t n_char) {
-	int16_t i, j, k;
+static int16_t BinarySearchSym(uint16_t x, SYMB* ptr, int16_t n_char)
+{
+	int16_t i = 1, j = n_char;
 
-	i = 1; j = n_char;
 	while (i < j) {
-		k = (i + j) >> 1; if (ptr->scf[k] > x) i = k + 1; else j = k;
+		int16_t k = (i + j) >> 1;
+		if (ptr->scf[k] > x)
+			i = k + 1;
+		else
+			j = k;
 	}
 	return i;
 }
 
-void StartDecode(bfile* fil) {
-	int16_t i;
-
-	for (i = 0; i < M + 2; i++) value = 2 * value + bfread(fil);
+void StartDecode(bfile* fil)
+{
+	for (int16_t i = 0; i < M + 2; i++) value = 2 * value + bfread(fil);
 }
 
-int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char) {
-	int16_t sym, ch;
-	uint32_t range;
-
-	range = high - low;
-	sym = BinarySearchSym((unsigned int)
+int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char)
+{
+	uint32_t range = high - low;
+	int16_t sym = BinarySearchSym((unsigned int)
 		(((value - low + 1) * ptr->scf[0] - 1) / range), ptr, n_char);
 
 	high = low + (range * ptr->scf[sym - 1]) / ptr->scf[0];
@@ -126,6 +132,8 @@ int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char) {
 		low <<= 1; high <<= 1;
 		value = 2 * value + bfread(fil);
 	}
-	ch = ptr->s2c[sym]; UpdateModel(sym, ptr, n_char);
+	int16_t ch = ptr->s2c[sym];
+	UpdateModel(sym, ptr, n_char);
+
 	return ch;
 }
