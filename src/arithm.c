@@ -1,3 +1,5 @@
+#include <assert.h>
+
 #include "inc/arithm.h"
 /********** Adaptive Arithmetic Compression **********/
 
@@ -23,29 +25,33 @@ static uint32_t low = 0, high = Q4, value = 0;
 static int16_t  shifts = 0; /* counts for magnifying low and high around Q2 */
 
 /* Initialize model */
-void StartModel(SYMB* ptr, int16_t n_char)
+void SetupContext(ArithCodingContext* ctx, int16_t alphabet_size)
 {
 	int16_t ch, sym;
-	ptr->scf[n_char] = 0;
+
+	assert(alphabet_size <= MAX_ALPHABET_SIZE);
+	ctx->alphabet_size = alphabet_size;
+
+	ctx->scf[alphabet_size] = 0;
 	/* define start distribution */
-	for (sym = n_char; sym >= 1; sym--) {
-		ch = sym - 1; ptr->c2s[ch] = sym; ptr->s2c[sym] = ch;
-		ptr->sf[sym] = 1; /* here empirical frequency */
-		ptr->scf[sym - 1] = ptr->scf[sym] + ptr->sf[sym];
+	for (sym = alphabet_size; sym >= 1; sym--) {
+		ch = sym - 1; ctx->c2s[ch] = sym; ctx->s2c[sym] = ch;
+		ctx->sf[sym] = 1; /* here empirical frequency */
+		ctx->scf[sym - 1] = ctx->scf[sym] + ctx->sf[sym];
 	}
 	/* sentinel (!= sf[1]) */
-	ptr->sf[0] = 0;
+	ctx->sf[0] = 0;
 }
 
 /* update adaptive model */
-static void UpdateModel(int sym, SYMB* ptr, int16_t n_char)
+static void UpdateModel(int sym, ArithCodingContext* ptr)
 {
 	int16_t i, c, ch_i, ch_sym;
 
 	if (ptr->scf[0] >= MAX_CUM) { /* if overflow */
 		c = 0;
 		/* scale down frequencies */
-		for (i = n_char; i > 0; i--) {
+		for (i = ptr->alphabet_size; i > 0; i--) {
 			ptr->scf[i] = c; c += (ptr->sf[i] = (ptr->sf[i] + 1) >> 1);
 		}
 		ptr->scf[0] = c;
@@ -66,36 +72,36 @@ static void Output(uint8_t bit, bfile* fil)
 }
 
 /* encode current char */
-void EncodeChar(int16_t ch, bfile* fil, SYMB* ptr, int16_t n_char)
+void EncodeChar(int16_t ch, bfile* bin_file, ArithCodingContext* ctx)
 {
-	int16_t sym = ptr->c2s[ch];
+	int16_t sym = ctx->c2s[ch];
 	uint32_t range = high - low;
 
-	high = low + (range * ptr->scf[sym - 1]) / ptr->scf[0];
-	low += (range * ptr->scf[sym]) / ptr->scf[0];
+	high = low + (range * ctx->scf[sym - 1]) / ctx->scf[0];
+	low += (range * ctx->scf[sym]) / ctx->scf[0];
 
 	for (;;) {
-		if (high <= Q2) Output(0, fil);
-		else if (low >= Q2) { Output(1, fil); low -= Q2; high -= Q2; }
+		if (high <= Q2) Output(0, bin_file);
+		else if (low >= Q2) { Output(1, bin_file); low -= Q2; high -= Q2; }
 		else if (low >= Q1 && high <= Q3) {
 			shifts++; low -= Q1; high -= Q1;
 		}
 		else break;
 		low <<= 1; high <<= 1;
 	}
-	UpdateModel(sym, ptr, n_char);
+	UpdateModel(sym, ctx);
 }
 
 /* must be performed when end of stream */
-void EncodeEnd(bfile* fil)
+void FinishEncode(bfile* fil)
 {
 	shifts++;
 	Output(low < Q1 ? 0 : 1, fil);
 }
 
-static int16_t BinarySearchSym(uint16_t x, SYMB* ptr, int16_t n_char)
+static int16_t BinarySearchSym(uint16_t x, ArithCodingContext* ptr)
 {
-	int16_t i = 1, j = n_char;
+	int16_t i = 1, j = ptr->alphabet_size;
 
 	while (i < j) {
 		int16_t k = (i + j) >> 1;
@@ -112,14 +118,13 @@ void StartDecode(bfile* fil)
 	for (int16_t i = 0; i < M + 2; i++) value = 2 * value + bfread(fil);
 }
 
-int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char)
+int16_t DecodeChar(bfile* bin_file, ArithCodingContext* ctx)
 {
 	uint32_t range = high - low;
-	int16_t sym = BinarySearchSym((unsigned int)
-		(((value - low + 1) * ptr->scf[0] - 1) / range), ptr, n_char);
+	int16_t sym = BinarySearchSym((unsigned int)(((value - low + 1) * ctx->scf[0] - 1) / range), ctx);
 
-	high = low + (range * ptr->scf[sym - 1]) / ptr->scf[0];
-	low += (range * ptr->scf[sym]) / ptr->scf[0];
+	high = low + (range * ctx->scf[sym - 1]) / ctx->scf[0];
+	low += (range * ctx->scf[sym]) / ctx->scf[0];
 
 	for (;;) {
 		if (low >= Q2) {
@@ -130,10 +135,10 @@ int16_t DecodeChar(bfile* fil, SYMB* ptr, int16_t n_char)
 		}
 		else if (high > Q2) break;
 		low <<= 1; high <<= 1;
-		value = 2 * value + bfread(fil);
+		value = 2 * value + bfread(bin_file);
 	}
-	int16_t ch = ptr->s2c[sym];
-	UpdateModel(sym, ptr, n_char);
+	int16_t ch = ctx->s2c[sym];
+	UpdateModel(sym, ctx);
 
 	return ch;
 }

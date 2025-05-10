@@ -39,7 +39,7 @@
 #include "inc/bwt.h"
 #include "inc/mtf.h"
 
-/* lempel-ziff prediction engine variables ---------------------*/
+ /* lempel-ziff prediction engine variables ---------------------*/
 #define LZP_LenThreshold 16
 
 /* for BWT */
@@ -111,15 +111,12 @@ static int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OF
 	CompressedHeader Header;
 	FILE* InputFileHeader;
 	bfile* OutputFileHeader;
-	SYMB StandardWriter, Code12Out;
+	ArithCodingContext StandardWriter, Code12Out;
 	uint32_t BlockSize;
 	uint32_t i, LenOut, TmpBlckLen;
 	uint8_t* BwtInBuffer;
-	uint32_t j, NumZeroes;
-	uint16_t NxVal;
+	uint32_t j;
 	uint8_t* InputBuffer, * OutputBuffer;
-	uint32_t Left, Right, Middle;
-
 
 	InputFileHeader = fopen(InFileName, "rb");
 	if (InputFileHeader == NULL) return 2;
@@ -183,8 +180,8 @@ static int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OF
 		}
 		return 3;
 	}
-	StartModel(&Code12Out, 258);
-	StartModel(&StandardWriter, 257);
+	SetupContext(&Code12Out, 258);
+	SetupContext(&StandardWriter, 257);
 
 	i = InputFileSize;
 	MtfSetup();
@@ -210,62 +207,67 @@ static int32_t CompressFile(char* InFileName, char* OutFileName, uint8_t P_ON_OF
 			/* do BWT, mtf, 0-1 coding , arithmetic coding */
 			TmpBlckLen = BWT_TRANSFORM(LenOut, BwtInBuffer, idxs);
 
-			EncodeChar(1, OutputFileHeader, &StandardWriter, 257);
+			EncodeChar(1, OutputFileHeader, &StandardWriter);
 
-			EncodeChar((int16_t)((TmpBlckLen >> 24) & 0xff), OutputFileHeader,
-				&StandardWriter, 257);
-			EncodeChar((int16_t)((TmpBlckLen >> 16) & 0xff), OutputFileHeader,
-				&StandardWriter, 257);
-			EncodeChar((int16_t)((TmpBlckLen >> 8) & 0xff), OutputFileHeader,
-				&StandardWriter, 257);
-			EncodeChar((int16_t)(TmpBlckLen & 0xff), OutputFileHeader,
-				&StandardWriter, 257);
+			EncodeChar((int16_t)((TmpBlckLen >> 24) & 0xff), OutputFileHeader, &StandardWriter);
+			EncodeChar((int16_t)((TmpBlckLen >> 16) & 0xff), OutputFileHeader, &StandardWriter);
+			EncodeChar((int16_t)((TmpBlckLen >> 8) & 0xff), OutputFileHeader, &StandardWriter);
+			EncodeChar((int16_t)(TmpBlckLen & 0xff), OutputFileHeader, &StandardWriter);
 
 			/* do mtf, 0-1, ari */
 			//MtfSetup();
+
 			j = 0;
-
 			while (j < LenOut) {
-				NumZeroes = 0;
-				while (j < LenOut)
-					if ((NxVal = GetMtfValue(BwtInBuffer[idxs[j] >= 3 ?
-						idxs[j] - 3 : LenOut + idxs[j] - 3])) != 0) break;
-					else {
-						NumZeroes++;
-						j++;
-					}
-				if (NumZeroes != 0) {
-					NumZeroes--;
+				uint16_t mtf_value = 0;
+				uint32_t zeroes_count = 0;
 
-					Left = 0;
-					Right = 24;
-					while (Left != Right) {
-						Middle = (Left + Right) >> 1;
-						if (NumZeroes > PyramidTable[Middle]) Left = Middle + 1;
-						else Right = Middle;
-					}
-					if (PyramidTable[Left] == NumZeroes) Left++;
-					NumZeroes -= PyramidTable[Left - 1];
-
-					do EncodeChar((int16_t)(NumZeroes & 1), OutputFileHeader,
-						&Code12Out, 258); while (NumZeroes >>= 1, --Left);
+				while (j < LenOut && (mtf_value = GetMtfValue(BwtInBuffer[((LenOut + idxs[j]) - 3) % LenOut])) == 0)
+				{
+					++zeroes_count;
+					++j;
 				}
-				if (NxVal != 0) {
-					EncodeChar((int16_t)(NxVal + 1), OutputFileHeader,
-						&Code12Out, 258);
+
+				if (zeroes_count-- > 0)
+				{
+					uint32_t lhs = 0, rhs = 24, mid;
+					while (lhs != rhs)
+					{
+						mid = (lhs + rhs) / 2;
+						if (zeroes_count > PyramidTable[mid]) lhs = mid + 1;
+						else rhs = mid;
+					}
+					
+					if (PyramidTable[lhs] == zeroes_count)
+					{
+						++lhs;
+					}
+					
+					zeroes_count -= PyramidTable[lhs - 1];
+
+					do
+					{
+						EncodeChar((int16_t)(zeroes_count & 1), OutputFileHeader, &Code12Out);
+						zeroes_count >>= 1;
+					} while (--lhs);
+				}
+
+				if (mtf_value != 0)
+				{
+					EncodeChar((int16_t)(mtf_value + 1), OutputFileHeader, &Code12Out);
 				}
 				j++;
 			}
-			EncodeChar(257, OutputFileHeader, &Code12Out, 258);
+			EncodeChar(257, OutputFileHeader, &Code12Out);
 		}
 		else {
-			EncodeChar(0, OutputFileHeader, &StandardWriter, 257);
+			EncodeChar(0, OutputFileHeader, &StandardWriter);
 			for (j = 0; j < LenOut; j++)
-				EncodeChar((int16_t)BwtInBuffer[j], OutputFileHeader, &StandardWriter, 257);
-			EncodeChar(256, OutputFileHeader, &StandardWriter, 257);
+				EncodeChar((int16_t)BwtInBuffer[j], OutputFileHeader, &StandardWriter);
+			EncodeChar(256, OutputFileHeader, &StandardWriter);
 		}
 	}
-	EncodeEnd(OutputFileHeader);
+	FinishEncode(OutputFileHeader);
 
 	// free mem, close files
 	free(idxs);
@@ -289,7 +291,7 @@ static int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 	CompressedHeader Header;
 	bfile* InputFileHeader;
 	FILE* OutputFileHeader;
-	SYMB StandardWriter, Code12Out;
+	ArithCodingContext StandardWriter, Code12Out;
 	uint32_t BlockSize;
 	uint32_t i, LenOut, TmpBlckLen;
 	uint8_t* BwtInBuffer;
@@ -352,8 +354,8 @@ static int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 		}
 		return 3;
 	}
-	StartModel(&Code12Out, 258);
-	StartModel(&StandardWriter, 257);
+	SetupContext(&Code12Out, 258);
+	SetupContext(&StandardWriter, 257);
 	StartDecode(InputFileHeader);
 
 	i = InputFileSize;
@@ -363,19 +365,19 @@ static int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 		i -= TmpBlckLen;
 
 		LenOut = 0;
-		if (DecodeChar(InputFileHeader, &StandardWriter, 257) == 1) {
+		if (DecodeChar(InputFileHeader, &StandardWriter) == 1) {
 			//[unari,un1-2,unmtf],unbwt
 
-			StringPos = DecodeChar(InputFileHeader, &StandardWriter, 257);
+			StringPos = DecodeChar(InputFileHeader, &StandardWriter);
 			StringPos <<= 8;
-			StringPos |= DecodeChar(InputFileHeader, &StandardWriter, 257);
+			StringPos |= DecodeChar(InputFileHeader, &StandardWriter);
 			StringPos <<= 8;
-			StringPos |= DecodeChar(InputFileHeader, &StandardWriter, 257);
+			StringPos |= DecodeChar(InputFileHeader, &StandardWriter);
 			StringPos <<= 8;
-			StringPos |= DecodeChar(InputFileHeader, &StandardWriter, 257);
+			StringPos |= DecodeChar(InputFileHeader, &StandardWriter);
 
 			TmpSum = 0; j = 1; NumZeroes = 0;
-			while ((NxVal = DecodeChar(InputFileHeader, &Code12Out, 258)) != 257)
+			while ((NxVal = DecodeChar(InputFileHeader, &Code12Out)) != 257)
 			{
 				if (NxVal < 2) {
 					if (NxVal != 0) TmpSum |= j;
@@ -403,7 +405,7 @@ static int32_t DeCompressFile(char* InFileName, uint8_t StdOutOn)
 			UnBWT(StringPos, LenOut, OutputBuffer, InputBuffer, idxs);
 		}
 		else {
-			while ((NxVal = DecodeChar(InputFileHeader, &StandardWriter, 257)) != 256)
+			while ((NxVal = DecodeChar(InputFileHeader, &StandardWriter)) != 256)
 			{
 				OutputBuffer[LenOut++] = (uint8_t)NxVal;
 			}
