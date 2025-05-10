@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include "inc/bwt.h"
 #include "inc/sort3.h"
 
@@ -66,7 +67,7 @@ static int fcmp2(uint32_t a, uint32_t b)
 uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb, uint32_t* idxs)
 {
 	uint32_t i, ptr;
-	uint32_t i1, j, k;
+	uint32_t j, k;
 	uint8_t mask[256], st_mask[256];
 	uint8_t ord[256];
 
@@ -75,7 +76,7 @@ uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb, uint32_t* idxs)
 	ScanLen = len - 2;
 	ScanBuf = pb;
 	/* clean buckets */
-	for (i = 0; i < 65537; i++) SBck[i] = 0;
+	memset(SBck, 0, 65537 * sizeof(*SBck));
 
 	/* calculate buckets */
 	for (i = 0; i < len - 1; i++)
@@ -98,22 +99,33 @@ uint32_t BWT_TRANSFORM(uint32_t len, uint8_t* pb, uint32_t* idxs)
 	qsort(ord, 256, sizeof(*ord), fcmp1);
 
 	/* now, begin sort buckets */
-	for (i = 0; i < 256; i++) mask[i] = 0;
-	for (i = 0; i < 65536; i++) SBm[i] = 0;
+	memset(mask, 0, 256 * sizeof(mask[0]));
+	memset(SBm, 0, 65536 * sizeof(SBm[0]));
+
 	for (i = 0; i < 256; i++) {
-		i1 = ord[i];
-		if ((SBck[(i1 + 1) << 8] & C_B) - (SBck[i1 << 8] & C_B) > 1)
+		const uint32_t i1 = ord[i];
+		const uint32_t i1_hi = i1 << 8;
+
+		if ((SBck[i1_hi + 256] & C_B) - (SBck[i1_hi] & C_B) > 1)
+		{
 			/* sort this big bucket */
-			for (j = 0; j < 256; j++) {
-				k = (i1 << 8) | j;
-				if (((SBck[k + 1] & C_B) - (SBck[k] & C_B) > 1) && !(SBck[k] & M_B)) {
-					qsort4(&idxs[SBck[k]], (SBck[k + 1] & C_B) - SBck[k],
-						fcmp2);
+			for (j = 0; j < 256; j++)
+			{
+				k = i1_hi | j;
+				if ((SBck[k] & M_B) == 0)
+				{
+					const uint32_t bucket_size = (SBck[k + 1] & C_B) - SBck[k];
+					if (bucket_size > 1)
+					{
+						qsort4(&idxs[SBck[k]], (SBck[k + 1] & C_B) - SBck[k], fcmp2);
+					}
 				}
 			}
+		}
+
 		/* setup sorted order for small buckets */
 		ptr = 0;
-		for (j = SBck[i1 << 8] & C_B; j < (SBck[(i1 + 1) << 8] & C_B); j++) {
+		for (j = SBck[i1_hi] & C_B; j < (SBck[i1_hi + 256] & C_B); j++) {
 			k = ((idxs[j] >= 3) ? idxs[j] - 3 : len + idxs[j] - 3);
 			if (!mask[pb[k]]) {
 				mask[pb[k]] = 1;
