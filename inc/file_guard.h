@@ -97,19 +97,6 @@ private:
     bool committed_{};
 };
 
-struct InBFileCloser
-{
-    void operator()(bfile* file) const noexcept
-    {
-        if (file != nullptr)
-        {
-            r_bfclose(file);
-        }
-    }
-};
-
-using UniqueInBFile = std::unique_ptr<bfile, InBFileCloser>;
-
 class UniqueOutBFile
 {
 public:
@@ -118,9 +105,11 @@ public:
     UniqueOutBFile& operator=(const UniqueOutBFile&) = delete;
 
     UniqueOutBFile(UniqueOutBFile&& other) noexcept
-        : bf_(std::exchange(other.bf_, nullptr)), stdout_(other.stdout_), committed_(other.committed_),
+        : file_(std::move(other.file_)), stdout_(other.stdout_), committed_(other.committed_),
           path_(std::move(other.path_))
     {
+        other.stdout_ = false;
+        other.committed_ = true;
     }
 
     UniqueOutBFile& operator=(UniqueOutBFile&& other) noexcept
@@ -130,10 +119,12 @@ public:
             return *this;
         }
         reset();
-        bf_ = std::exchange(other.bf_, nullptr);
+        file_ = std::move(other.file_);
         stdout_ = other.stdout_;
         committed_ = other.committed_;
         path_ = std::move(other.path_);
+        other.stdout_ = false;
+        other.committed_ = true;
         return *this;
     }
 
@@ -144,18 +135,18 @@ public:
 
     [[nodiscard]] static UniqueOutBFile open(std::string path, bool write_stdout)
     {
-        bfile* const file = write_stdout ? bfopen_as_stdout() : bfopen(path.c_str(), "wb");
-        return UniqueOutBFile{file, write_stdout, std::move(path)};
+        BitFile bits = write_stdout ? BitFile::stdout_write() : BitFile::open_write(path.c_str());
+        return UniqueOutBFile{std::move(bits), write_stdout, std::move(path)};
     }
 
     [[nodiscard]] explicit operator bool() const noexcept
     {
-        return bf_ != nullptr;
+        return static_cast<bool>(file_);
     }
 
-    [[nodiscard]] bfile* get() const noexcept
+    [[nodiscard]] BitFile& stream() noexcept
     {
-        return bf_;
+        return file_;
     }
 
     void commit() noexcept
@@ -164,32 +155,27 @@ public:
     }
 
 private:
-    UniqueOutBFile(bfile* file, bool write_stdout, std::string path)
-        : bf_(file), stdout_(write_stdout), path_(std::move(path))
+    UniqueOutBFile(BitFile file, bool write_stdout, std::string path)
+        : file_(std::move(file)), stdout_(write_stdout), path_(std::move(path))
     {
     }
 
     // boffin: refused fclose of stdout, and remove the archive only when the write never committed
     void reset() noexcept
     {
-        if (bf_ == nullptr)
+        if (!file_)
         {
             return;
         }
-        bfile* const file = std::exchange(bf_, nullptr);
-        if (stdout_)
-        {
-            w_bfclose_as_stdout(file);
-            return;
-        }
-        w_bfclose(file);
-        if (!committed_)
+        const bool doomed = !stdout_ && !committed_;
+        file_.close();
+        if (doomed)
         {
             std::remove(path_.c_str());
         }
     }
 
-    bfile* bf_{};
+    BitFile file_{};
     bool stdout_{};
     bool committed_{};
     std::string path_;

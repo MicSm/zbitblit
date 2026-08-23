@@ -27,7 +27,6 @@
 #include "inc/byte_order.h"
 #include "inc/cli.h"
 #include "inc/cmstruct.h"
-#include "inc/codec.h"
 #include "inc/file_guard.h"
 #include "inc/workspace.h"
 
@@ -100,21 +99,22 @@ void copy_header_name(CompressedHeader& header, std::string_view path)
     header.FileName[n] = '\0';
 }
 
-[[nodiscard]] bool write_archive_header(bfile* out, const CompressedHeader& header)
+[[nodiscard]] bool write_archive_header(BitFile& out, const CompressedHeader& header)
 {
-    if (std::fwrite(ArcIdentifier.data(), ArcIdentifier.size(), 1, out->file) != 1)
+    std::FILE* const file = out.native();
+    if (std::fwrite(ArcIdentifier.data(), ArcIdentifier.size(), 1, file) != 1)
     {
         return false;
     }
-    if (std::fwrite(header.FileName, std::strlen(header.FileName) + 1, 1, out->file) != 1)
+    if (std::fwrite(header.FileName, std::strlen(header.FileName) + 1, 1, file) != 1)
     {
         return false;
     }
-    if (!write_be32(out->file, header.UncompressedLen))
+    if (!write_be32(file, header.UncompressedLen))
     {
         return false;
     }
-    return write_u8(out->file, header.SystemFlag);
+    return write_u8(file, header.SystemFlag);
 }
 
 enum class HeaderStatus
@@ -124,10 +124,11 @@ enum class HeaderStatus
     bad_archive,
 };
 
-[[nodiscard]] HeaderStatus read_archive_header(bfile* in, CompressedHeader& header)
+[[nodiscard]] HeaderStatus read_archive_header(BitFile& in, CompressedHeader& header)
 {
+    std::FILE* const file = in.native();
     std::array<std::uint8_t, 12> arc{};
-    if (std::fread(arc.data(), arc.size(), 1, in->file) != 1)
+    if (std::fread(arc.data(), arc.size(), 1, file) != 1)
     {
         return HeaderStatus::io_failed;
     }
@@ -139,7 +140,7 @@ enum class HeaderStatus
     std::size_t n = 0;
     for (;;)
     {
-        const int ch = std::fgetc(in->file);
+        const int ch = std::fgetc(file);
         if (ch == EOF)
         {
             return HeaderStatus::io_failed;
@@ -157,13 +158,13 @@ enum class HeaderStatus
     }
     header.FileName[n] = '\0';
 
-    if (!read_be32(in->file, header.UncompressedLen))
+    if (!read_be32(file, header.UncompressedLen))
     {
         return HeaderStatus::io_failed;
     }
 
     std::uint8_t flag = 0;
-    if (!read_u8(in->file, flag))
+    if (!read_u8(file, flag))
     {
         return HeaderStatus::io_failed;
     }
@@ -251,7 +252,7 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
     copy_header_name(header, input_path);
     header.UncompressedLen = input_size;
     header.SystemFlag = pack_system_flag(options.preprocess, options.block_size_code);
-    if (!write_archive_header(output.get(), header))
+    if (!write_archive_header(output.stream(), header))
     {
         return ProcessError::io_failed;
     }
@@ -259,11 +260,8 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
     try
     {
         BlockWorkspace ws;
-        if (const ProcessError err = ws.acquire(options.preprocess, block_size); err != ProcessError::none)
-        {
-            return err;
-        }
-        MtfSetup(ws.mtf);
+        ws.acquire(options.preprocess, block_size);
+        ws.begin_encode();
 
         std::uint32_t remaining = input_size;
         while (remaining != 0)
@@ -274,15 +272,13 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
                 return ProcessError::io_failed;
             }
             remaining -= tmp_block_len;
-            encode_payload_block(
+            ws.encode_payload(
                 std::span<std::uint8_t>{ws.front.data(), tmp_block_len},
-                ws,
-                output.get(),
-                options.preprocess);
+                output.stream());
         }
 
-        FinishEncode(ws.arith, output.get());
-        if (std::ferror(output.get()->file) != 0)
+        ws.arith.finish_encode(output.stream());
+        if (std::ferror(output.stream().native()) != 0)
         {
             return ProcessError::io_failed;
         }
@@ -298,14 +294,14 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
 ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
 {
     const std::string in_name{archive_path};
-    UniqueInBFile input{bfopen(in_name.c_str(), "rb")};
+    BitFile input = BitFile::open_read(in_name.c_str());
     if (!input)
     {
         return ProcessError::file_not_opened;
     }
 
     CompressedHeader header{};
-    if (const ProcessError err = map_header_status(read_archive_header(input.get(), header));
+    if (const ProcessError err = map_header_status(read_archive_header(input, header));
         err != ProcessError::none)
     {
         return err;
@@ -335,12 +331,8 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
     try
     {
         BlockWorkspace ws;
-        if (const ProcessError err = ws.acquire(preprocess, block_size); err != ProcessError::none)
-        {
-            return err;
-        }
-        StartDecode(ws.arith, input.get());
-        DeMtfSetup(ws.mtf);
+        ws.acquire(preprocess, block_size);
+        ws.begin_decode(input);
 
         std::uint32_t remaining = input_size;
         while (remaining != 0)
@@ -348,19 +340,16 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
             const std::uint32_t tmp_block_len = remaining >= block_size ? block_size : remaining;
             remaining -= tmp_block_len;
 
-            std::uint8_t* ready = nullptr;
-            std::uint32_t len_out = 0;
-            if (const ProcessError err = decode_transformed_block(input.get(), ws, ready, len_out);
-                err != ProcessError::none)
+            DecodeOutcome decoded = ws.decode_transformed(input);
+            if (decoded.error != ProcessError::none)
+            {
+                return decoded.error;
+            }
+            if (const ProcessError err = ws.finish_decoded(tmp_block_len, decoded); err != ProcessError::none)
             {
                 return err;
             }
-            if (const ProcessError err = finish_decoded_block(preprocess, tmp_block_len, ready, len_out, ws);
-                err != ProcessError::none)
-            {
-                return err;
-            }
-            if (len_out != 0 && std::fwrite(ready, len_out, 1, output_file) != 1)
+            if (decoded.length != 0 && std::fwrite(decoded.data, decoded.length, 1, output_file) != 1)
             {
                 return ProcessError::io_failed;
             }

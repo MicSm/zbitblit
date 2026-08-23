@@ -62,22 +62,22 @@ static std::uint32_t GetLength(const std::uint8_t* input_buffer, std::uint32_t* 
     return result;
 }
 
-std::uint32_t LZP_PREPROCESS(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
+std::uint32_t LzpTables::preprocess(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
 {
     std::copy_n(InData, 5, OutData);
     std::uint32_t out_length = 5;
     std::uint32_t pointer = 5;
 
-    tables.ht4[HashFunction4(4, InData)] = InData + 4;
+    ht4[HashFunction4(4, InData)] = InData + 4;
     while (pointer < InLength)
     {
         const std::uint32_t hash_index4 = HashFunction4(pointer, InData);
         const std::uint32_t hash_index5 = HashFunction5(pointer, InData);
 
-        std::uint8_t* const pointer4 = tables.ht4[hash_index4];
-        std::uint8_t* const pointer5 = tables.ht5[hash_index5];
+        std::uint8_t* const pointer4 = ht4[hash_index4];
+        std::uint8_t* const pointer5 = ht5[hash_index5];
 
-        tables.ht5[hash_index5] = tables.ht4[hash_index4] = InData + pointer;
+        ht5[hash_index5] = ht4[hash_index4] = InData + pointer;
 
         if (pointer5 != nullptr || pointer4 != nullptr)
         {
@@ -108,22 +108,22 @@ std::uint32_t LZP_PREPROCESS(LzpTables& tables, std::uint8_t* InData, std::uint8
     return out_length;
 }
 
-std::uint32_t UnPreprocess(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
+std::uint32_t LzpTables::unpreprocess(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
 {
     std::copy_n(InData, 5, OutData);
     std::uint32_t out_length = 5;
     std::uint32_t pointer = 5;
 
-    tables.ht4[HashFunction4(4, OutData)] = OutData + 4;
+    ht4[HashFunction4(4, OutData)] = OutData + 4;
     while (pointer < InLength)
     {
         const std::uint32_t hash_index4 = HashFunction4(out_length, OutData);
         const std::uint32_t hash_index5 = HashFunction5(out_length, OutData);
 
-        std::uint8_t* const pointer4 = tables.ht4[hash_index4];
-        std::uint8_t* const pointer5 = tables.ht5[hash_index5];
+        std::uint8_t* const pointer4 = ht4[hash_index4];
+        std::uint8_t* const pointer5 = ht5[hash_index5];
 
-        tables.ht5[hash_index5] = tables.ht4[hash_index4] = OutData + out_length;
+        ht5[hash_index5] = ht4[hash_index4] = OutData + out_length;
 
         if (pointer5 != nullptr || pointer4 != nullptr)
         {

@@ -28,7 +28,7 @@ set(HEADERS
     inc/byte_order.h
     inc/cli.h
     inc/cmstruct.h
-    inc/codec.h
+    inc/status.h
     inc/ecp.h
     inc/file_guard.h
     inc/mio.h

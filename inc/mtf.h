@@ -12,15 +12,12 @@ struct MtfState
         std::uint8_t DeMtfArray[256];
     } data;
 
-    std::uint16_t HeadPtr;
+    std::uint16_t HeadPtr = 0;
+
+    void setup();
+    void setup_decode();
+    [[nodiscard]] std::uint16_t get_value(std::uint16_t in_value);
+    [[nodiscard]] std::uint8_t by_position(std::uint8_t position);
 };
-
-void MtfSetup(MtfState& state);
-
-void DeMtfSetup(MtfState& state);
-
-[[nodiscard]] std::uint16_t GetMtfValue(MtfState& state, std::uint16_t InValue);
-
-[[nodiscard]] std::uint8_t GetByMtfPosition(MtfState& state, std::uint8_t Position);
 
 } // namespace zbb

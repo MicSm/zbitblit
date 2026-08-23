@@ -12,10 +12,8 @@ struct LzpTables
 
     void ensure();
     void clear();
+    std::uint32_t preprocess(std::uint8_t* in_data, std::uint8_t* out_data, std::uint32_t in_length);
+    std::uint32_t unpreprocess(std::uint8_t* in_data, std::uint8_t* out_data, std::uint32_t in_length);
 };
-
-std::uint32_t LZP_PREPROCESS(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength);
-
-std::uint32_t UnPreprocess(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength);
 
 } // namespace zbb

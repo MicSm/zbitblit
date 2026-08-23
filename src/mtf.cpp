@@ -2,54 +2,54 @@
 
 namespace zbb {
 
-void MtfSetup(MtfState& state)
+void MtfState::setup()
 {
-    state.HeadPtr = 0;
+    HeadPtr = 0;
     for (std::uint16_t i = 0; i < 256; i++)
     {
-        state.data.MtfLinks[i] = static_cast<std::uint16_t>(i + 1);
+        data.MtfLinks[i] = static_cast<std::uint16_t>(i + 1);
     }
 }
 
-void DeMtfSetup(MtfState& state)
+void MtfState::setup_decode()
 {
     for (std::uint16_t i = 0; i < 256; i++)
     {
-        state.data.DeMtfArray[i] = static_cast<std::uint8_t>(i);
+        data.DeMtfArray[i] = static_cast<std::uint8_t>(i);
     }
 }
 
-std::uint16_t GetMtfValue(MtfState& state, std::uint16_t InValue)
+std::uint16_t MtfState::get_value(std::uint16_t in_value)
 {
     std::uint16_t skipped = 0;
     std::uint16_t pred = 0;
-    std::uint16_t p = state.HeadPtr;
-    while (p != InValue)
+    std::uint16_t p = HeadPtr;
+    while (p != in_value)
     {
         pred = p;
-        p = state.data.MtfLinks[p];
+        p = data.MtfLinks[p];
         skipped++;
     }
     if (skipped != 0)
     {
-        state.data.MtfLinks[pred] = state.data.MtfLinks[p];
-        state.data.MtfLinks[p] = state.HeadPtr;
-        state.HeadPtr = p;
+        data.MtfLinks[pred] = data.MtfLinks[p];
+        data.MtfLinks[p] = HeadPtr;
+        HeadPtr = p;
     }
     return skipped;
 }
 
-std::uint8_t GetByMtfPosition(MtfState& state, std::uint8_t Position)
+std::uint8_t MtfState::by_position(std::uint8_t position)
 {
-    const std::uint8_t result = state.data.DeMtfArray[Position];
+    const std::uint8_t result = data.DeMtfArray[position];
 
-    if (Position != 0)
+    if (position != 0)
     {
-        for (std::uint8_t i = Position; i > 0; i--)
+        for (std::uint8_t i = position; i > 0; i--)
         {
-            state.data.DeMtfArray[i] = state.data.DeMtfArray[i - 1];
+            data.DeMtfArray[i] = data.DeMtfArray[i - 1];
         }
-        state.data.DeMtfArray[0] = result;
+        data.DeMtfArray[0] = result;
     }
     return result;
 }

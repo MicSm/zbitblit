@@ -2,12 +2,14 @@
 
 #include "inc/arithm.h"
 #include "inc/bwt.h"
-#include "inc/ecp.h"
 #include "inc/lzp_prep.h"
+#include "inc/mio.h"
 #include "inc/mtf.h"
+#include "inc/status.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace zbb {
@@ -41,21 +43,29 @@ inline constexpr std::uint32_t k_block_unit_bytes = 100u * 1024u;
     return code >= 1 && code <= 127;
 }
 
+struct DecodeOutcome
+{
+    // boffin: kept reconstructed pointer and length as one decode result
+    ProcessError error = ProcessError::none;
+    std::uint8_t* data = nullptr;
+    std::uint32_t length = 0;
+};
+
 struct BlockWorkspace
 {
+    bool preprocess = false;
     LzpTables lzp;
     BwtWorkspace bwt;
     std::vector<std::uint8_t> front;
     std::vector<std::uint8_t> back;
     std::vector<std::uint32_t> idxs;
-    ArithCodingContext flag_ctx{};
-    ArithCodingContext mtf_ctx{};
-    ArithStream arith{};
+    ArithCoder arith{};
     MtfState mtf{};
 
-    [[nodiscard]] ProcessError acquire(bool preprocess, std::uint32_t block_size)
+    void acquire(bool preprocess_flag, std::uint32_t block_size)
     {
         // boffin: kept LZP and BWT tables on this per-file workspace instead of process globals
+        preprocess = preprocess_flag;
         if (preprocess)
         {
             lzp.ensure();
@@ -66,11 +76,30 @@ struct BlockWorkspace
         front.resize(buf_len);
         back.resize(buf_len);
         idxs.resize(buf_len);
-        SetupContext(&mtf_ctx, 258);
-        SetupContext(&flag_ctx, 257);
-        StartEncode(arith);
-        return ProcessError::none;
+        arith.setup_models();
     }
+
+    void begin_encode()
+    {
+        // boffin: kept encode start and decode start as distinct workspace phases
+        arith.start_encode();
+        mtf.setup();
+    }
+
+    void begin_decode(BitFile& in)
+    {
+        arith.start_decode(in);
+        mtf.setup_decode();
+    }
+
+    [[nodiscard]] std::uint8_t* alternate(const std::uint8_t* cursor)
+    {
+        return (cursor == front.data()) ? back.data() : front.data();
+    }
+
+    void encode_payload(std::span<std::uint8_t> raw, BitFile& out);
+    [[nodiscard]] DecodeOutcome decode_transformed(BitFile& in);
+    [[nodiscard]] ProcessError finish_decoded(std::uint32_t expected_len, DecodeOutcome& decoded);
 };
 
 } // namespace zbb

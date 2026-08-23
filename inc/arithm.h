@@ -17,6 +17,8 @@ struct ArithCodingContext
     std::array<std::int16_t, MAX_ALPHABET_SIZE + 1> s2c{};
     std::array<std::uint16_t, MAX_ALPHABET_SIZE + 1> sf{};
     std::array<std::uint16_t, MAX_ALPHABET_SIZE + 1> scf{};
+
+    void setup(std::int16_t new_alphabet_size);
 };
 
 struct ArithStream
@@ -25,18 +27,24 @@ struct ArithStream
     std::uint32_t high = 0;
     std::uint32_t value = 0;
     std::int16_t shifts = 0;
+
+    void start_encode();
+    void start_decode(BitFile& file);
+    void encode_char(std::int16_t ch, BitFile& file, ArithCodingContext& ctx);
+    [[nodiscard]] std::int16_t decode_char(BitFile& file, ArithCodingContext& ctx);
+    void finish_encode(BitFile& file);
 };
 
-void SetupContext(ArithCodingContext* ctx, std::int16_t alphabet_size);
+struct ArithCoder
+{
+    ArithStream stream{};
+    ArithCodingContext flag{};
+    ArithCodingContext mtf{};
 
-void StartEncode(ArithStream& stream);
-
-void EncodeChar(std::int16_t ch, bfile* bin_file, ArithCodingContext* ctx, ArithStream& stream);
-
-[[nodiscard]] std::int16_t DecodeChar(bfile* bin_file, ArithCodingContext* ctx, ArithStream& stream);
-
-void FinishEncode(ArithStream& stream, bfile* fil);
-
-void StartDecode(ArithStream& stream, bfile* fil);
+    void setup_models();
+    void start_encode();
+    void start_decode(BitFile& file);
+    void finish_encode(BitFile& file);
+};
 
 } // namespace zbb

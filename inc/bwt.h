@@ -15,16 +15,13 @@ struct BwtWorkspace
     std::uint8_t* scan_buf = nullptr;
 
     void ensure();
+    std::uint32_t transform(std::uint32_t len, std::uint8_t* pb, std::uint32_t* idxs);
+    void unbwt(
+        std::uint32_t str_pos,
+        std::uint32_t len,
+        std::uint8_t* input_buffer,
+        std::uint8_t* output_buffer,
+        std::uint32_t* idxs);
 };
-
-std::uint32_t BWT_TRANSFORM(BwtWorkspace& ws, std::uint32_t len, std::uint8_t* pb, std::uint32_t* idxs);
-
-void UnBWT(
-    BwtWorkspace& ws,
-    std::uint32_t StrPos,
-    std::uint32_t len,
-    std::uint8_t* InputBuffer,
-    std::uint8_t* OutputBuffer,
-    std::uint32_t* idxs);
 
 } // namespace zbb

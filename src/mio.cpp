@@ -1,47 +1,155 @@
 #include "inc/mio.h"
 
 #include <array>
-#include <memory>
+#include <cstddef>
+#include <utility>
 
 namespace zbb {
 namespace {
 
-void init_bit_state(bfile& bf)
+void attach_file_buffer(std::FILE* file, char* buffer)
 {
-    bf.rbuf = 0;
-    bf.rcnt = 0;
-    bf.wbuf = 0;
-    bf.wcnt = 0;
-}
-
-void attach_file_buffer(bfile& bf)
-{
-    std::setvbuf(bf.file, reinterpret_cast<char*>(bf.buff.data()), _IOFBF, SBUFF);
-}
-
-void destroy_bit_file(bfile* bf)
-{
-    std::unique_ptr<bfile> owned{bf};
-}
-
-void flush_write_tail(bfile* bf)
-{
-    // boffin: refused shifting a 32-bit pending word by 32 when no bits remain
-    if (bf->wcnt != 0)
-    {
-        std::array<std::uint8_t, 4> arr{};
-        bf->wbuf <<= 32 - bf->wcnt;
-        arr[0] = static_cast<std::uint8_t>((bf->wbuf >> 24) & 0xff);
-        arr[1] = static_cast<std::uint8_t>((bf->wbuf >> 16) & 0xff);
-        arr[2] = static_cast<std::uint8_t>((bf->wbuf >> 8) & 0xff);
-        arr[3] = static_cast<std::uint8_t>(bf->wbuf & 0xff);
-        const std::size_t nbytes = static_cast<std::size_t>(bf->wcnt >> 3) + ((bf->wcnt & 0x07) != 0 ? 1u : 0u);
-        std::fwrite(arr.data(), nbytes, 1, bf->file);
-    }
-    std::fflush(bf->file);
+    std::setvbuf(file, buffer, _IOFBF, static_cast<std::size_t>(SBUFF));
 }
 
 } // namespace
+
+BitFile::BitFile(std::FILE* file, bool owns_file, bool writing)
+    : file_(file), owns_file_(owns_file), writing_(writing)
+{
+    if (owns_file_)
+    {
+        iobuf_ = std::make_unique<char[]>(static_cast<std::size_t>(SBUFF));
+        attach_file_buffer(file_, iobuf_.get());
+    }
+}
+
+BitFile::BitFile(BitFile&& other) noexcept
+    : file_(std::exchange(other.file_, nullptr)), owns_file_(std::exchange(other.owns_file_, false)),
+      writing_(std::exchange(other.writing_, false)), rbuf_(std::exchange(other.rbuf_, 0)),
+      rcnt_(std::exchange(other.rcnt_, 0)), wbuf_(std::exchange(other.wbuf_, 0)),
+      wcnt_(std::exchange(other.wcnt_, 0)), iobuf_(std::move(other.iobuf_))
+{
+}
+
+BitFile& BitFile::operator=(BitFile&& other) noexcept
+{
+    if (this == &other)
+    {
+        return *this;
+    }
+    close();
+    file_ = std::exchange(other.file_, nullptr);
+    owns_file_ = std::exchange(other.owns_file_, false);
+    writing_ = std::exchange(other.writing_, false);
+    rbuf_ = std::exchange(other.rbuf_, 0);
+    rcnt_ = std::exchange(other.rcnt_, 0);
+    wbuf_ = std::exchange(other.wbuf_, 0);
+    wcnt_ = std::exchange(other.wcnt_, 0);
+    iobuf_ = std::move(other.iobuf_);
+    return *this;
+}
+
+BitFile::~BitFile()
+{
+    close();
+}
+
+BitFile BitFile::open_read(const char* name)
+{
+    std::FILE* const file = std::fopen(name, "rb");
+    if (file == nullptr)
+    {
+        return {};
+    }
+    return BitFile(file, true, false);
+}
+
+BitFile BitFile::open_write(const char* name)
+{
+    std::FILE* const file = std::fopen(name, "wb");
+    if (file == nullptr)
+    {
+        return {};
+    }
+    return BitFile(file, true, true);
+}
+
+BitFile BitFile::stdout_write()
+{
+    return BitFile(stdout, false, true);
+}
+
+void BitFile::flush_write_tail() noexcept
+{
+    // boffin: refused shifting a 32-bit pending word by 32 when no bits remain
+    if (wcnt_ != 0)
+    {
+        std::array<std::uint8_t, 4> arr{};
+        wbuf_ <<= 32 - wcnt_;
+        arr[0] = static_cast<std::uint8_t>((wbuf_ >> 24) & 0xff);
+        arr[1] = static_cast<std::uint8_t>((wbuf_ >> 16) & 0xff);
+        arr[2] = static_cast<std::uint8_t>((wbuf_ >> 8) & 0xff);
+        arr[3] = static_cast<std::uint8_t>(wbuf_ & 0xff);
+        const std::size_t nbytes = static_cast<std::size_t>(wcnt_ >> 3) + ((wcnt_ & 0x07) != 0 ? 1u : 0u);
+        std::fwrite(arr.data(), nbytes, 1, file_);
+    }
+    std::fflush(file_);
+}
+
+void BitFile::close() noexcept
+{
+    if (file_ == nullptr)
+    {
+        return;
+    }
+    if (writing_)
+    {
+        flush_write_tail();
+    }
+    else
+    {
+        std::fflush(file_);
+    }
+    if (owns_file_)
+    {
+        std::fclose(file_);
+    }
+    file_ = nullptr;
+    owns_file_ = false;
+    writing_ = false;
+    iobuf_.reset();
+}
+
+std::uint8_t BitFile::read_bit()
+{
+    if (rcnt_ == 0)
+    {
+        rbuf_ = 0;
+        rbuf_ |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(file_))) << 24;
+        rbuf_ |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(file_))) << 16;
+        rbuf_ |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(file_))) << 8;
+        rbuf_ |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(file_)));
+        rcnt_ = 32;
+    }
+    rcnt_--;
+    return (rbuf_ & (1UL << rcnt_)) != 0;
+}
+
+void BitFile::write_bit(std::uint8_t bit)
+{
+    if (wcnt_ == 32)
+    {
+        std::fputc(static_cast<std::uint8_t>((wbuf_ >> 24) & 0xff), file_);
+        std::fputc(static_cast<std::uint8_t>((wbuf_ >> 16) & 0xff), file_);
+        std::fputc(static_cast<std::uint8_t>((wbuf_ >> 8) & 0xff), file_);
+        std::fputc(static_cast<std::uint8_t>(wbuf_ & 0xff), file_);
+        wcnt_ = 0;
+    }
+    wcnt_++;
+    wbuf_ <<= 1;
+    wbuf_ |= static_cast<std::uint32_t>(bit);
+}
 
 std::int32_t filesize(std::FILE* file)
 {
@@ -60,84 +168,6 @@ std::int32_t filesize(std::FILE* file)
         return -1;
     }
     return static_cast<std::int32_t>(size);
-}
-
-bfile* bfopen_as_stdout()
-{
-    auto bf = std::make_unique<bfile>();
-    bf->file = stdout;
-    attach_file_buffer(*bf);
-    init_bit_state(*bf);
-    return bf.release();
-}
-
-bfile* bfopen(const char* name, const char* mode)
-{
-    auto bf = std::make_unique<bfile>();
-    bf->file = std::fopen(name, mode);
-    if (bf->file == nullptr)
-    {
-        return nullptr;
-    }
-    attach_file_buffer(*bf);
-    init_bit_state(*bf);
-    return bf.release();
-}
-
-std::uint8_t bfread(bfile* bf)
-{
-    if (bf->rcnt == 0)
-    {
-        bf->rbuf = 0;
-        bf->rbuf |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(bf->file))) << 24;
-        bf->rbuf |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(bf->file))) << 16;
-        bf->rbuf |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(bf->file))) << 8;
-        bf->rbuf |= static_cast<std::uint32_t>(static_cast<std::uint8_t>(std::fgetc(bf->file)));
-        bf->rcnt = 32;
-    }
-    bf->rcnt--;
-    return (bf->rbuf & (1UL << bf->rcnt)) != 0;
-}
-
-void bfwrite(std::uint8_t bit, bfile* bf)
-{
-    if (bf->wcnt == 32)
-    {
-        std::fputc(static_cast<std::uint8_t>((bf->wbuf >> 24) & 0xff), bf->file);
-        std::fputc(static_cast<std::uint8_t>((bf->wbuf >> 16) & 0xff), bf->file);
-        std::fputc(static_cast<std::uint8_t>((bf->wbuf >> 8) & 0xff), bf->file);
-        std::fputc(static_cast<std::uint8_t>(bf->wbuf & 0xff), bf->file);
-        bf->wcnt = 0;
-    }
-    bf->wcnt++;
-    bf->wbuf <<= 1;
-    bf->wbuf |= static_cast<std::uint32_t>(bit);
-}
-
-void w_bfclose(bfile* bf)
-{
-    flush_write_tail(bf);
-    std::fclose(bf->file);
-    destroy_bit_file(bf);
-}
-
-void w_bfclose_as_stdout(bfile* bf)
-{
-    flush_write_tail(bf);
-    destroy_bit_file(bf);
-}
-
-void r_bfclose_as_stdout(bfile* bf)
-{
-    std::fflush(bf->file);
-    destroy_bit_file(bf);
-}
-
-void r_bfclose(bfile* bf)
-{
-    std::fflush(bf->file);
-    std::fclose(bf->file);
-    destroy_bit_file(bf);
 }
 
 } // namespace zbb

@@ -72,12 +72,12 @@ void BwtWorkspace::ensure()
     sbm.resize(65536);
 }
 
-std::uint32_t BWT_TRANSFORM(BwtWorkspace& ws, std::uint32_t len, std::uint8_t* pb, std::uint32_t* idxs)
+std::uint32_t BwtWorkspace::transform(std::uint32_t len, std::uint8_t* pb, std::uint32_t* idxs)
 {
-    ws.ensure();
-    auto& sbkt = ws.sbkt;
-    auto& sbm = ws.sbm;
-    auto& v = ws.v;
+    ensure();
+    auto& sbkt = this->sbkt;
+    auto& sbm = this->sbm;
+    auto& v = this->v;
 
     std::uint32_t i = 0;
     std::uint32_t ptr = 0;
@@ -88,8 +88,8 @@ std::uint32_t BWT_TRANSFORM(BwtWorkspace& ws, std::uint32_t len, std::uint8_t* p
     std::array<std::uint8_t, 256> ord{};
     std::uint16_t vtmp0 = 0;
 
-    ws.scan_len = len - 2;
-    ws.scan_buf = pb;
+    scan_len = len - 2;
+    scan_buf = pb;
     std::fill(sbkt.begin(), sbkt.end(), 0);
 
     for (i = 0; i < len - 1; i++)
@@ -133,7 +133,7 @@ std::uint32_t BWT_TRANSFORM(BwtWorkspace& ws, std::uint32_t len, std::uint8_t* p
                     const std::uint32_t bucket_size = (sbkt[k + 1] & C_B) - sbkt[k];
                     if (bucket_size > 1)
                     {
-                        qsort4(&idxs[sbkt[k]], static_cast<long>((sbkt[k + 1] & C_B) - sbkt[k]), fcmp2, &ws);
+                        qsort4(&idxs[sbkt[k]], static_cast<long>((sbkt[k + 1] & C_B) - sbkt[k]), fcmp2, this);
                     }
                 }
             }
@@ -168,15 +168,14 @@ std::uint32_t BWT_TRANSFORM(BwtWorkspace& ws, std::uint32_t len, std::uint8_t* p
     return i;
 }
 
-void UnBWT(
-    BwtWorkspace& ws,
+void BwtWorkspace::unbwt(
     std::uint32_t StrPos,
     std::uint32_t len,
     std::uint8_t* InputBuffer,
     std::uint8_t* OutputBuffer,
     std::uint32_t* idxs)
 {
-    auto& v = ws.v;
+    auto& v = this->v;
     v.fill(0);
 
     for (std::int32_t i = 0; i < static_cast<std::int32_t>(len); i++)
