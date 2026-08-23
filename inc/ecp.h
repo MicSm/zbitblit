@@ -11,6 +11,8 @@ enum class ProcessError
     zero_file_size,
     file_not_opened,
     no_memory,
+    bad_archive,
+    io_failed,
 };
 
 struct CompressOptions
