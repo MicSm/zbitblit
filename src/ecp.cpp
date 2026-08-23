@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <print>
 #include <span>
 #include <string>
 #include <string_view>
@@ -210,10 +211,11 @@ void report_ratio(std::string_view input_path, std::string_view output_path)
         return;
     }
     const float bits_per_symbol = 8.0f * (static_cast<float>(out_size) / static_cast<float>(in_size));
-    std::fprintf(
+    // boffin: kept the seven-wide bits-per-symbol field; the line goes through std::print
+    std::print(
         stderr,
-        "\nFile \"%s\" was compressed\nThe %7f bits per symbol ratio was obtained\n",
-        in_name.c_str(),
+        "\nFile \"{}\" was compressed\nThe {:7f} bits per symbol ratio was obtained\n",
+        in_name,
         bits_per_symbol);
 }
 
@@ -399,7 +401,7 @@ int run(int argc, char** argv)
         error = decompress_file(req.input_path, req.options.write_stdout);
         if (error == ProcessError::none)
         {
-            std::fprintf(stderr, "\nArchive file \"%s\" was successfully processed\n", req.input_path.c_str());
+            std::println(stderr, "\nArchive file \"{}\" was successfully processed", req.input_path);
         }
     }
 

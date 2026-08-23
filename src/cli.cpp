@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <print>
 #include <string>
 #include <string_view>
 
@@ -225,36 +226,41 @@ void print_cli_error(CliError error)
     case CliError::none:
         return;
     }
-    std::fprintf(stderr, "\n%s\n", message);
+    // boffin: kept the CLI message bytes the same; diagnostics go through std::print
+    std::println(stderr, "\n{}", message);
 }
 
 void print_process_error(ProcessError error)
 {
+    const char* message = nullptr;
     switch (error)
     {
     case ProcessError::zero_file_size:
-        std::fprintf(stderr, "\n_File size is zero_\n");
+        message = "_File size is zero_";
         break;
     case ProcessError::file_not_opened:
-        std::fprintf(stderr, "\n_Can't open file_\n");
+        message = "_Can't open file_";
         break;
     case ProcessError::no_memory:
-        std::fprintf(stderr, "\n_No memory for processing_\n");
+        message = "_No memory for processing_";
         break;
     case ProcessError::bad_archive:
-        std::fprintf(stderr, "\n_Can't process archive_\n");
+        message = "_Can't process archive_";
         break;
     case ProcessError::io_failed:
-        std::fprintf(stderr, "\n_I/O error_\n");
+        message = "_I/O error_";
         break;
     case ProcessError::none:
-        break;
+        return;
     }
+    std::println(stderr, "\n{}", message);
 }
 
 void print_usage()
 {
-    std::printf(
+    // boffin: treated the usage banner as a literal so `{1 .. 127}` stays text
+    std::print(
+        "{}",
         "\n"
         "Experimental compression program. (c) 1999-2020 by Michael Semikov\n"
         "Version 0.1\n\n"
