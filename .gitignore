@@ -259,3 +259,6 @@ __pycache__/
 # serena
 
 .serena/*
+
+# generated zbb case runner tree
+TEST/work/
