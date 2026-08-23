@@ -24,7 +24,8 @@ int32_t filesize(FILE* tmp__);
 
 bfile* bfopen_as_stdout(void);
 
-bfile* bfopen(char* name, char* mode);
+// boffin: refused a writable pointer to the open-mode literals the caller passes
+bfile* bfopen(const char* name, const char* mode);
 
 uint8_t bfread(bfile* bf);
 

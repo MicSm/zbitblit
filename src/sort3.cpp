@@ -1,9 +1,9 @@
 #include "inc/sort3.h"
 
-#define SWP(xx,yy) { unsigned long swp=base[xx];base[xx]=base[yy];base[yy]=swp; }
+#define SWP(xx,yy) { uint32_t swp=base[xx];base[xx]=base[yy];base[yy]=swp; }
 
-void qsort4(unsigned long* base, long nelem,
-	int (*fcmp)(unsigned long, unsigned long)) {
+void qsort4(uint32_t* base, long nelem,
+	int (*fcmp)(uint32_t, uint32_t)) {
 
 	long stack_start[32], stack_end[32];
 	long left, right, num, j, i, middle, stack_on;

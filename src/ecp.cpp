@@ -50,7 +50,7 @@ static void PutHeader(CompressedHeader* Ptr, bfile* OutF)
 	uint8_t* p;
 
 	fwrite(ArcIdentifier, 12, 1, OutF->file);
-	p = Ptr->FileName;
+	p = (uint8_t*)Ptr->FileName;
 	while (*p) { fputc(*p, OutF->file); p++; }
 	fputc(0, OutF->file);
 
@@ -73,7 +73,7 @@ static int32_t GetHeader(CompressedHeader* Ptr, bfile* InF)
 	for (c = 0; c < 12; c++) if (ArcRd[c] != ArcIdentifier[c]) break;
 	if (c != 12) return 1;
 
-	p = Ptr->FileName;
+	p = (uint8_t*)Ptr->FileName;
 	while (c = fgetc(InF->file)) *p++ = (uint8_t)c;
 	*p++ = 0;
 
