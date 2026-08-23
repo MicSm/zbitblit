@@ -1,29 +1,41 @@
 #pragma once
 
-#include <stdint.h>
 #include "inc/mio.h"
 
-/* our alphabet */
+#include <cstdint>
+
+namespace zbb {
+
 /* character code = 0, 1, ..., MAX_ALPHABET_SIZE - 1 */
-#define MAX_ALPHABET_SIZE 260
+constexpr std::int16_t MAX_ALPHABET_SIZE = 260;
 
-typedef struct
+struct ArithCodingContext
 {
-	int16_t alphabet_size;
-	int16_t  c2s[MAX_ALPHABET_SIZE], s2c[MAX_ALPHABET_SIZE + 1];
-	uint16_t sf[MAX_ALPHABET_SIZE + 1], scf[MAX_ALPHABET_SIZE + 1];
-} ArithCodingContext;
+    std::int16_t alphabet_size;
+    std::int16_t c2s[MAX_ALPHABET_SIZE];
+    std::int16_t s2c[MAX_ALPHABET_SIZE + 1];
+    std::uint16_t sf[MAX_ALPHABET_SIZE + 1];
+    std::uint16_t scf[MAX_ALPHABET_SIZE + 1];
+};
 
-/* Initialize model */
-void SetupContext(ArithCodingContext* ctx, int16_t alphabet_size);
+struct ArithStream
+{
+    std::uint32_t low = 0;
+    std::uint32_t high = 0;
+    std::uint32_t value = 0;
+    std::int16_t shifts = 0;
+};
 
-/* encode pending char */
-void EncodeChar(int16_t ch, bfile* bin_file, ArithCodingContext* ctx);
+void SetupContext(ArithCodingContext* ctx, std::int16_t alphabet_size);
 
-/* decode next char */
-int16_t DecodeChar(bfile* bin_file, ArithCodingContext* ctx);
+void StartEncode(ArithStream& stream);
 
-/* must be performed when end of stream */
-void FinishEncode(bfile* fil);
+void EncodeChar(std::int16_t ch, bfile* bin_file, ArithCodingContext* ctx, ArithStream& stream);
 
-void StartDecode(bfile* fil);
+[[nodiscard]] std::int16_t DecodeChar(bfile* bin_file, ArithCodingContext* ctx, ArithStream& stream);
+
+void FinishEncode(ArithStream& stream, bfile* fil);
+
+void StartDecode(ArithStream& stream, bfile* fil);
+
+} // namespace zbb

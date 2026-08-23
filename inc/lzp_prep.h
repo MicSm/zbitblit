@@ -1,17 +1,17 @@
 #pragma once
 
-#include <stdlib.h>
-#include <stdint.h>
+#include <cstdint>
 
-/* allocate hashtables */
-int CreateHashTables(void);
+namespace zbb {
 
-/* destroy hashtables */
-void DestructHashTables(void);
+[[nodiscard]] int CreateHashTables();
 
-/* clean hashtables */
-void CleanHashTables(void);
+void DestructHashTables();
 
-uint32_t LZP_PREPROCESS(uint8_t* InData, uint8_t* OutData, uint32_t InLength);
+void CleanHashTables();
 
-uint32_t UnPreprocess(uint8_t* InData, uint8_t* OutData, uint32_t InLength);
+std::uint32_t LZP_PREPROCESS(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength);
+
+std::uint32_t UnPreprocess(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength);
+
+} // namespace zbb

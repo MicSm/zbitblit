@@ -339,6 +339,8 @@ struct BlockWorkspace
     std::vector<std::uint32_t> idxs;
     ArithCodingContext flag_ctx{};
     ArithCodingContext mtf_ctx{};
+    ArithStream arith{};
+    MtfState mtf{}; // boffin: kept encode and decode tables on the caller-owned MTF state
 
     [[nodiscard]] ProcessError acquire(bool preprocess, std::uint32_t block_size)
     {
@@ -357,6 +359,7 @@ struct BlockWorkspace
         idxs.resize(buf_len);
         SetupContext(&mtf_ctx, 258);
         SetupContext(&flag_ctx, 257);
+        StartEncode(arith);
         return ProcessError::none;
     }
 };
@@ -425,20 +428,20 @@ struct BlockWorkspace
     return ProcessError::none;
 }
 
-void encode_be32(bfile* file, ArithCodingContext& ctx, std::uint32_t value)
+void encode_be32(bfile* file, ArithCodingContext& ctx, ArithStream& stream, std::uint32_t value)
 {
     for (const std::uint8_t byte : be32_bytes(value))
     {
-        EncodeChar(static_cast<std::int16_t>(byte), file, &ctx);
+        EncodeChar(static_cast<std::int16_t>(byte), file, &ctx, stream);
     }
 }
 
-[[nodiscard]] std::uint32_t decode_be32(bfile* file, ArithCodingContext& ctx)
+[[nodiscard]] std::uint32_t decode_be32(bfile* file, ArithCodingContext& ctx, ArithStream& stream)
 {
     std::array<std::uint8_t, 4> bytes{};
     for (std::uint8_t& byte : bytes)
     {
-        byte = static_cast<std::uint8_t>(DecodeChar(file, &ctx));
+        byte = static_cast<std::uint8_t>(DecodeChar(file, &ctx, stream));
     }
     return u32_from_be32(bytes);
 }
@@ -452,7 +455,7 @@ void copy_header_name(CompressedHeader& header, std::string_view path)
 
 [[nodiscard]] bool write_archive_header(bfile* out, const CompressedHeader& header)
 {
-    if (std::fwrite(ArcIdentifier, 12, 1, out->file) != 1)
+    if (std::fwrite(ArcIdentifier.data(), ArcIdentifier.size(), 1, out->file) != 1)
     {
         return false;
     }
@@ -481,7 +484,7 @@ enum class HeaderStatus
     {
         return HeaderStatus::io_failed;
     }
-    if (std::memcmp(arc, ArcIdentifier, 12) != 0)
+    if (std::memcmp(arc, ArcIdentifier.data(), ArcIdentifier.size()) != 0)
     {
         return HeaderStatus::bad_archive;
     }
@@ -535,7 +538,7 @@ enum class HeaderStatus
     return ProcessError::bad_archive;
 }
 
-void encode_zero_run(std::uint32_t zeroes_count, bfile* out, ArithCodingContext& ctx)
+void encode_zero_run(std::uint32_t zeroes_count, bfile* out, ArithCodingContext& ctx, ArithStream& stream)
 {
     std::uint32_t lhs = 0;
     std::uint32_t rhs = 24;
@@ -560,7 +563,7 @@ void encode_zero_run(std::uint32_t zeroes_count, bfile* out, ArithCodingContext&
     zeroes_count -= k_pyramid_table[lhs - 1];
     do
     {
-        EncodeChar(static_cast<std::int16_t>(zeroes_count & 1), out, &ctx);
+        EncodeChar(static_cast<std::int16_t>(zeroes_count & 1), out, &ctx, stream);
         zeroes_count >>= 1;
     } while (--lhs);
 }
@@ -569,7 +572,9 @@ void encode_mtf_block(
     std::span<const std::uint8_t> bwt_in,
     std::span<const std::uint32_t> idxs,
     bfile* out,
-    ArithCodingContext& ctx)
+    ArithCodingContext& ctx,
+    ArithStream& stream,
+    MtfState& mtf)
 {
     const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
     std::uint32_t j = 0;
@@ -578,7 +583,7 @@ void encode_mtf_block(
         std::uint16_t mtf_value = 0;
         std::uint32_t zeroes_count = 0;
         while (j < len_out &&
-               (mtf_value = GetMtfValue(bwt_in[((len_out + idxs[j]) - 3) % len_out])) == 0)
+               (mtf_value = GetMtfValue(mtf, bwt_in[((len_out + idxs[j]) - 3) % len_out])) == 0)
         {
             ++zeroes_count;
             ++j;
@@ -586,43 +591,45 @@ void encode_mtf_block(
 
         if (zeroes_count-- > 0)
         {
-            encode_zero_run(zeroes_count, out, ctx);
+            encode_zero_run(zeroes_count, out, ctx, stream);
         }
 
         if (mtf_value != 0)
         {
-            EncodeChar(static_cast<std::int16_t>(mtf_value + 1), out, &ctx);
+            EncodeChar(static_cast<std::int16_t>(mtf_value + 1), out, &ctx, stream);
         }
         ++j;
     }
-    EncodeChar(257, out, &ctx);
+    EncodeChar(257, out, &ctx, stream);
 }
 
-void encode_bwt_block(
-    std::span<std::uint8_t> bwt_in,
-    std::span<std::uint32_t> idxs,
-    bfile* out,
-    ArithCodingContext& flag_ctx,
-    ArithCodingContext& mtf_ctx)
+void encode_bwt_block(std::span<std::uint8_t> bwt_in, std::span<std::uint32_t> idxs, bfile* out, BlockWorkspace& ws)
 {
     const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
     const std::uint32_t primary_index = BWT_TRANSFORM(len_out, bwt_in.data(), idxs.data());
-    EncodeChar(1, out, &flag_ctx);
-    encode_be32(out, flag_ctx, primary_index);
-    encode_mtf_block(std::span<const std::uint8_t>{bwt_in.data(), len_out},
-                     std::span<const std::uint32_t>{idxs.data(), len_out},
-                     out,
-                     mtf_ctx);
+    EncodeChar(1, out, &ws.flag_ctx, ws.arith);
+    encode_be32(out, ws.flag_ctx, ws.arith, primary_index);
+    encode_mtf_block(
+        std::span<const std::uint8_t>{bwt_in.data(), len_out},
+        std::span<const std::uint32_t>{idxs.data(), len_out},
+        out,
+        ws.mtf_ctx,
+        ws.arith,
+        ws.mtf);
 }
 
-void encode_raw_block(std::span<const std::uint8_t> data, bfile* out, ArithCodingContext& flag_ctx)
+void encode_raw_block(
+    std::span<const std::uint8_t> data,
+    bfile* out,
+    ArithCodingContext& flag_ctx,
+    ArithStream& stream)
 {
-    EncodeChar(0, out, &flag_ctx);
+    EncodeChar(0, out, &flag_ctx, stream);
     for (const std::uint8_t byte : data)
     {
-        EncodeChar(static_cast<std::int16_t>(byte), out, &flag_ctx);
+        EncodeChar(static_cast<std::int16_t>(byte), out, &flag_ctx, stream);
     }
-    EncodeChar(256, out, &flag_ctx);
+    EncodeChar(256, out, &flag_ctx, stream);
 }
 
 void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile* out, bool preprocess)
@@ -645,16 +652,19 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
             std::span<std::uint8_t>{transformed, len_out},
             std::span<std::uint32_t>{ws.idxs.data(), ws.idxs.size()},
             out,
-            ws.flag_ctx,
-            ws.mtf_ctx);
+            ws);
     }
     else
     {
-        encode_raw_block(std::span<const std::uint8_t>{transformed, len_out}, out, ws.flag_ctx);
+        encode_raw_block(std::span<const std::uint8_t>{transformed, len_out}, out, ws.flag_ctx, ws.arith);
     }
 }
 
-[[nodiscard]] bool emit_mtf_zeroes(std::span<std::uint8_t> output, std::uint32_t& len_out, std::uint32_t count)
+[[nodiscard]] bool emit_mtf_zeroes(
+    std::span<std::uint8_t> output,
+    std::uint32_t& len_out,
+    std::uint32_t count,
+    MtfState& mtf)
 {
     // boffin: refused wrapping remaining capacity when the fill cursor is already past the buffer
     if (len_out > output.size() || count > output.size() - len_out)
@@ -663,7 +673,7 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
     }
     while (count-- != 0)
     {
-        output[len_out++] = GetByMtfPosition(0);
+        output[len_out++] = GetByMtfPosition(mtf, 0);
     }
     return true;
 }
@@ -671,6 +681,8 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
 [[nodiscard]] bool decode_mtf_block(
     bfile* in,
     ArithCodingContext& ctx,
+    ArithStream& stream,
+    MtfState& mtf,
     std::span<std::uint8_t> output,
     std::uint32_t& len_out)
 {
@@ -679,7 +691,7 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
     std::uint32_t num_zeroes = 0;
     std::uint16_t nx_val = 0;
     len_out = 0;
-    while ((nx_val = static_cast<std::uint16_t>(DecodeChar(in, &ctx))) != 257)
+    while ((nx_val = static_cast<std::uint16_t>(DecodeChar(in, &ctx, stream))) != 257)
     {
         if (nx_val < 2)
         {
@@ -704,7 +716,7 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
                     return false;
                 }
                 tmp_sum += (1u << num_zeroes) - 1u;
-                if (!emit_mtf_zeroes(output, len_out, tmp_sum))
+                if (!emit_mtf_zeroes(output, len_out, tmp_sum, mtf))
                 {
                     return false;
                 }
@@ -716,7 +728,8 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
             {
                 return false;
             }
-            output[len_out++] = static_cast<std::uint8_t>(GetByMtfPosition(static_cast<std::uint8_t>(nx_val - 1)));
+            output[len_out++] =
+                static_cast<std::uint8_t>(GetByMtfPosition(mtf, static_cast<std::uint8_t>(nx_val - 1)));
         }
     }
 
@@ -727,7 +740,7 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
             return false;
         }
         tmp_sum += (1u << num_zeroes) - 1u;
-        if (!emit_mtf_zeroes(output, len_out, tmp_sum))
+        if (!emit_mtf_zeroes(output, len_out, tmp_sum, mtf))
         {
             return false;
         }
@@ -738,12 +751,13 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
 [[nodiscard]] bool decode_raw_block(
     bfile* in,
     ArithCodingContext& ctx,
+    ArithStream& stream,
     std::span<std::uint8_t> output,
     std::uint32_t& len_out)
 {
     std::uint16_t nx_val = 0;
     len_out = 0;
-    while ((nx_val = static_cast<std::uint16_t>(DecodeChar(in, &ctx))) != 256)
+    while ((nx_val = static_cast<std::uint16_t>(DecodeChar(in, &ctx, stream))) != 256)
     {
         if (len_out >= output.size())
         {
@@ -760,11 +774,11 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
     std::uint8_t*& decoded,
     std::uint32_t& len_out)
 {
-    const std::int16_t kind = DecodeChar(in, &ws.flag_ctx);
+    const std::int16_t kind = DecodeChar(in, &ws.flag_ctx, ws.arith);
     if (kind == 1)
     {
-        const std::uint32_t string_pos = decode_be32(in, ws.flag_ctx);
-        if (!decode_mtf_block(in, ws.mtf_ctx, ws.back, len_out))
+        const std::uint32_t string_pos = decode_be32(in, ws.flag_ctx, ws.arith);
+        if (!decode_mtf_block(in, ws.mtf_ctx, ws.arith, ws.mtf, ws.back, len_out))
         {
             return ProcessError::bad_archive;
         }
@@ -777,7 +791,7 @@ void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile
     }
     else if (kind == 0)
     {
-        if (!decode_raw_block(in, ws.flag_ctx, ws.back, len_out))
+        if (!decode_raw_block(in, ws.flag_ctx, ws.arith, ws.back, len_out))
         {
             return ProcessError::bad_archive;
         }
@@ -1182,7 +1196,7 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
         {
             return err;
         }
-        MtfSetup();
+        MtfSetup(ws.mtf);
 
         std::uint32_t remaining = input_size;
         while (remaining != 0)
@@ -1200,7 +1214,7 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
                 options.preprocess);
         }
 
-        FinishEncode(output.get());
+        FinishEncode(ws.arith, output.get());
         if (std::ferror(output.get()->file) != 0)
         {
             return ProcessError::io_failed;
@@ -1258,8 +1272,8 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
         {
             return err;
         }
-        StartDecode(input.get());
-        DeMtfSetup();
+        StartDecode(ws.arith, input.get());
+        DeMtfSetup(ws.mtf);
 
         std::uint32_t remaining = input_size;
         while (remaining != 0)

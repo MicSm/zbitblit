@@ -1,11 +1,26 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
-void MtfSetup(void);
+namespace zbb {
 
-void DeMtfSetup(void);
+struct MtfState
+{
+    union
+    {
+        std::uint16_t MtfLinks[256];
+        std::uint8_t DeMtfArray[256];
+    } data;
 
-uint16_t GetMtfValue(uint16_t InValue);
+    std::uint16_t HeadPtr;
+};
 
-uint8_t GetByMtfPosition(uint8_t Position);
+void MtfSetup(MtfState& state);
+
+void DeMtfSetup(MtfState& state);
+
+[[nodiscard]] std::uint16_t GetMtfValue(MtfState& state, std::uint16_t InValue);
+
+[[nodiscard]] std::uint8_t GetByMtfPosition(MtfState& state, std::uint8_t Position);
+
+} // namespace zbb

@@ -5,9 +5,11 @@ project(${PROJECT_NAME} CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_compile_options(-Wall)
-if(UNIX)
-    add_compile_options(-Wextra)
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    add_compile_options(/W3)
+else()
+    add_compile_options(-Wall -Wextra)
 endif()
 
 set(SOURCES
