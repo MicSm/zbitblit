@@ -3,8 +3,9 @@
 
     python3 TEST/run-cases.py
     python3 TEST/run-cases.py --zbb /path/to/zbb
+    python3 TEST/run-cases.py --jobs 2
 
-Work products go to TEST/work/ (gitignored).
+Work products go to TEST/work/ (gitignored). Cases run in parallel on half the CPUs.
 """
 
 from __future__ import annotations
@@ -15,14 +16,23 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence, Tuple
 
 TEST_ROOT = Path(__file__).resolve().parent
 WORK_ROOT = TEST_ROOT / "work"
-SRC_DIR = WORK_ROOT / "src"
 BLOCK_UNIT = 100 * 1024
+JobFn = Callable[[], Optional[str]]
+_LOG_LOCK = threading.Lock()
+
+
+def log(message: str) -> None:
+    with _LOG_LOCK:
+        print(message, flush=True)
 
 
 def pattern_bytes(length: int, mul: int, add: int) -> bytes:
@@ -35,6 +45,11 @@ def fill_bytes(length: int, value: int) -> bytes:
 
 def cycle_bytes(length: int) -> bytes:
     return bytes(i & 255 for i in range(length))
+
+
+def default_workers() -> int:
+    # boffin: cap the pool at half the CPUs so the machine stays usable
+    return max(1, (os.cpu_count() or 2) // 2)
 
 
 def find_zbb(explicit: Optional[Path]) -> Path:
@@ -79,7 +94,7 @@ def find_zbb(explicit: Optional[Path]) -> Path:
     raise SystemExit("zbb not found. Build the project, pass --zbb, or set ZBB.")
 
 
-def run_zbb(zbb: Path, args: List[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
+def run_zbb(zbb: Path, args: Sequence[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [str(zbb), *args],
         cwd=None if cwd is None else str(cwd),
@@ -108,47 +123,49 @@ def remove_tree(path: Path) -> None:
         raise last_error
 
 
-def install_fixtures() -> None:
-    SRC_DIR.mkdir(parents=True, exist_ok=True)
-    (SRC_DIR / "tiny.bin").write_bytes(bytes((0x00, 0x01, 0x02)))
-    (SRC_DIR / "raw7.bin").write_bytes(bytes(range(1, 8)))
-    (SRC_DIR / "bwt8.bin").write_bytes(bytes(range(1, 9)))
-    # boffin: kept a 15-byte -p case so preprocessing stays off below the length gate
-    (SRC_DIR / "lzp15.bin").write_bytes(pattern_bytes(15, 17, 3))
-    (SRC_DIR / "lzp16.bin").write_bytes(fill_bytes(16, 0x42))
-    (SRC_DIR / "mix64.bin").write_bytes(pattern_bytes(64, 37, 11))
-    (SRC_DIR / "rep64.bin").write_bytes(fill_bytes(64, 0x41))
-    # boffin: kept a full block plus a 7-byte tail so the last chunk still takes the raw path
-    (SRC_DIR / "tail7.bin").write_bytes(cycle_bytes(BLOCK_UNIT + 7))
-    (SRC_DIR / "big.bin").write_bytes(cycle_bytes(250000))
-    (SRC_DIR / "empty.bin").write_bytes(b"")
-
-    tar = TEST_ROOT / "test.tar"
-    if tar.is_file():
-        shutil.copy2(tar, SRC_DIR / "test.tar")
+def case_dir(case_id: str) -> Path:
+    return WORK_ROOT / "cases" / case_id
 
 
-def test_roundtrip(zbb: Path, name: str, zbb_args: List[str]) -> Optional[str]:
-    src = SRC_DIR / name
-    archive = SRC_DIR / (name + ".zbb")
-    if archive.exists():
-        archive.unlink()
+def prepare_src(case_id: str, filename: str, payload: Optional[bytes], source: Optional[Path]) -> Path:
+    # boffin: gave each case its own directory so parallel zbb runs do not share a cwd
+    root = case_dir(case_id)
+    if root.exists():
+        remove_tree(root)
+    src = root / "src"
+    src.mkdir(parents=True)
+    dest = src / filename
+    if source is not None:
+        shutil.copy2(source, dest)
+    else:
+        dest.write_bytes(payload or b"")
+    return src
 
-    proc = run_zbb(zbb, zbb_args + [name], cwd=SRC_DIR)
+
+def test_roundtrip(
+    zbb: Path,
+    case_id: str,
+    filename: str,
+    zbb_args: Sequence[str],
+    payload: Optional[bytes] = None,
+    source: Optional[Path] = None,
+) -> Optional[str]:
+    src_dir = prepare_src(case_id, filename, payload, source)
+    src = src_dir / filename
+    archive = src_dir / (filename + ".zbb")
+
+    proc = run_zbb(zbb, list(zbb_args) + [filename], cwd=src_dir)
     if proc.returncode != 0:
         return "compress exit {0}".format(proc.returncode)
     if not archive.is_file():
         return "archive missing"
 
-    dec_dir = WORK_ROOT / "dec" / name
-    if dec_dir.exists():
-        remove_tree(dec_dir)
+    dec_dir = case_dir(case_id) / "dec"
     dec_dir.mkdir(parents=True)
-    dec_archive = dec_dir / (name + ".zbb")
-    restored = dec_dir / name
-    shutil.copy2(archive, dec_archive)
+    shutil.copy2(archive, dec_dir / (filename + ".zbb"))
+    restored = dec_dir / filename
 
-    proc = run_zbb(zbb, ["-d", name + ".zbb"], cwd=dec_dir)
+    proc = run_zbb(zbb, ["-d", filename + ".zbb"], cwd=dec_dir)
     if proc.returncode != 0:
         return "decompress exit {0}".format(proc.returncode)
     if not restored.is_file() or not filecmp.cmp(src, restored, shallow=False):
@@ -156,8 +173,8 @@ def test_roundtrip(zbb: Path, name: str, zbb_args: List[str]) -> Optional[str]:
     return None
 
 
-def test_cli(zbb: Path, args: List[str], expected_exit: int, needle: bytes) -> Optional[str]:
-    proc = run_zbb(zbb, args)
+def test_cli(zbb: Path, args: Sequence[str], expected_exit: int, needle: bytes) -> Optional[str]:
+    proc = run_zbb(zbb, list(args))
     if proc.returncode != expected_exit:
         return "exit {0} (expected {1})".format(proc.returncode, expected_exit)
     if needle not in combined_output(proc):
@@ -166,10 +183,9 @@ def test_cli(zbb: Path, args: List[str], expected_exit: int, needle: bytes) -> O
 
 
 def test_empty(zbb: Path) -> Optional[str]:
-    archive = SRC_DIR / "empty.bin.zbb"
-    if archive.exists():
-        archive.unlink()
-    proc = run_zbb(zbb, ["empty.bin"], cwd=SRC_DIR)
+    src_dir = prepare_src("empty", "empty.bin", b"", None)
+    archive = src_dir / "empty.bin.zbb"
+    proc = run_zbb(zbb, ["empty.bin"], cwd=src_dir)
     if proc.returncode != 1:
         return "exit {0} (expected 1)".format(proc.returncode)
     if b"_File size is zero_" not in combined_output(proc):
@@ -179,55 +195,175 @@ def test_empty(zbb: Path) -> Optional[str]:
     return None
 
 
-def record(failed: List[str], name: str, error: Optional[str]) -> None:
+def test_missing_tar() -> Optional[str]:
+    return "TEST/test.tar is missing"
+
+
+def test_bad_magic(zbb: Path) -> Optional[str]:
+    src_dir = prepare_src("bad-magic", "bad.zbb", b"not-a-zbb-archive!!!!", None)
+    proc = run_zbb(zbb, ["-d", "bad.zbb"], cwd=src_dir)
+    if proc.returncode != 1:
+        return "exit {0} (expected 1)".format(proc.returncode)
+    text = combined_output(proc)
+    if b"_Can't process archive_" not in text and b"_I/O error_" not in text:
+        return "unexpected message"
+    return None
+
+
+def test_truncated_archive(zbb: Path) -> Optional[str]:
+    src_dir = prepare_src("trunc-archive", "tiny.bin", bytes((1, 2, 3)), None)
+    proc = run_zbb(zbb, ["tiny.bin"], cwd=src_dir)
+    if proc.returncode != 0:
+        return "setup compress exit {0}".format(proc.returncode)
+    archive = src_dir / "tiny.bin.zbb"
+    blob = archive.read_bytes()
+    archive.write_bytes(blob[: min(16, max(1, len(blob) - 1))])
+    dec_dir = case_dir("trunc-archive") / "dec"
+    dec_dir.mkdir(parents=True)
+    shutil.copy2(archive, dec_dir / "tiny.bin.zbb")
+    proc = run_zbb(zbb, ["-d", "tiny.bin.zbb"], cwd=dec_dir)
+    if proc.returncode != 1:
+        return "trunc decompress exit {0}".format(proc.returncode)
+    return None
+
+
+def test_missing_archive(zbb: Path) -> Optional[str]:
+    proc = run_zbb(zbb, ["-d", "no-such-file.zbb"])
+    if proc.returncode != 1:
+        return "exit {0} (expected 1)".format(proc.returncode)
+    if b"_Can't open file_" not in combined_output(proc):
+        return "missing open-file message"
+    return None
+
+
+def rt(
+    zbb: Path,
+    case_id: str,
+    filename: str,
+    zbb_args: Sequence[str],
+    payload: bytes,
+) -> Tuple[str, JobFn]:
+    return (case_id, partial(test_roundtrip, zbb, case_id, filename, zbb_args, payload))
+
+
+def run_job(name: str, fn: JobFn) -> Optional[str]:
+    log("START {0}".format(name))
+    try:
+        error = fn()
+    except Exception as exc:
+        error = "{0}: {1}".format(type(exc).__name__, exc)
     if error:
-        print("FAIL  {0}  {1}".format(name, error))
-        failed.append(name)
+        log("FAIL  {0}  {1}".format(name, error))
     else:
-        print("PASS  {0}".format(name))
+        log("PASS  {0}".format(name))
+    return error
+
+
+def build_jobs(zbb: Path) -> List[Tuple[str, JobFn]]:
+    heavy: List[Tuple[str, JobFn]] = [
+        ("tail7-b1", partial(test_roundtrip, zbb, "tail7-b1", "tail7.bin", ["-b1"], cycle_bytes(BLOCK_UNIT + 7))),
+        ("big-b1", partial(test_roundtrip, zbb, "big-b1", "big.bin", ["-b1"], cycle_bytes(250000))),
+    ]
+    tar = TEST_ROOT / "test.tar"
+    if tar.is_file():
+        heavy.append(
+            (
+                "test.tar-p-b61",
+                partial(test_roundtrip, zbb, "test.tar-p-b61", "test.tar", ["-p", "-b61"], None, tar),
+            )
+        )
+    else:
+        heavy.append(("test.tar-p-b61", test_missing_tar))
+
+    midnul = bytearray(pattern_bytes(64, 37, 11))
+    midnul[16:24] = b"\x00" * 8
+
+    heavy.extend(
+        [
+            rt(zbb, "oneblock-b1", "oneblock.bin", ["-b1"], cycle_bytes(BLOCK_UNIT)),
+            rt(zbb, "twoblock-b1", "twoblock.bin", ["-b1"], cycle_bytes(BLOCK_UNIT * 2)),
+            rt(zbb, "underblock-b1", "underblock.bin", ["-b1"], cycle_bytes(BLOCK_UNIT - 1)),
+            rt(zbb, "tail7-p-b1", "tail7.bin", ["-p", "-b1"], cycle_bytes(BLOCK_UNIT + 7)),
+            rt(zbb, "big-p-b1", "big.bin", ["-p", "-b1"], cycle_bytes(250000)),
+        ]
+    )
+
+    light: List[Tuple[str, JobFn]] = [
+        ("usage", partial(test_cli, zbb, [], 0, b"Experimental compression program")),
+        ("unknown-key", partial(test_cli, zbb, ["-x"], 1, b"_Unknown key in command line_")),
+        ("no-file", partial(test_cli, zbb, ["-d"], 1, b"_No file to process_")),
+        ("p-no-file", partial(test_cli, zbb, ["-p"], 1, b"_No file to process_")),
+        ("bad-block", partial(test_cli, zbb, ["-b0", "x.bin"], 1, b"_Uncorrect buffer size_")),
+        ("b-only", partial(test_cli, zbb, ["-b", "x.bin"], 1, b"_Uncorrect buffer size_")),
+        ("b128", partial(test_cli, zbb, ["-b128", "x.bin"], 1, b"_Uncorrect buffer size_")),
+        ("lone-dash", partial(test_cli, zbb, ["-"], 1, b"_Unknown action requested_")),
+        ("two-files", partial(test_cli, zbb, ["a.bin", "b.bin"], 1, b"_Unknown action requested_")),
+        ("d-with-p", partial(test_cli, zbb, ["-d", "-p", "x.zbb"], 1, b"_Unknown action requested_")),
+        ("dp-token", partial(test_cli, zbb, ["-dp", "x.zbb"], 1, b"_Unknown action requested_")),
+        ("empty", partial(test_empty, zbb)),
+        ("bad-magic", partial(test_bad_magic, zbb)),
+        ("trunc-archive", partial(test_truncated_archive, zbb)),
+        ("missing-archive", partial(test_missing_archive, zbb)),
+        rt(zbb, "raw1", "raw1.bin", [], bytes((0x7F,))),
+        rt(zbb, "tiny", "tiny.bin", [], bytes((0x00, 0x01, 0x02))),
+        rt(zbb, "nuls7", "nuls7.bin", [], bytes(7)),
+        rt(zbb, "raw7", "raw7.bin", [], bytes(range(1, 8))),
+        rt(zbb, "bwt8", "bwt8.bin", [], bytes(range(1, 9))),
+        rt(zbb, "bwt9", "bwt9.bin", [], bytes(range(1, 10))),
+        rt(zbb, "nuls8", "nuls8.bin", [], bytes(8)),
+        rt(zbb, "lzp15-p", "lzp15.bin", ["-p"], pattern_bytes(15, 17, 3)),
+        rt(zbb, "lzp16-p", "lzp16.bin", ["-p"], fill_bytes(16, 0x42)),
+        rt(zbb, "lzp16", "lzp16.bin", [], fill_bytes(16, 0x42)),
+        rt(zbb, "shrink20-p", "shrink20.bin", ["-p"], fill_bytes(20, 0x41)),
+        rt(zbb, "ff32-p", "ff32.bin", ["-p"], fill_bytes(32, 0xFF)),
+        rt(zbb, "mix64", "mix64.bin", [], pattern_bytes(64, 37, 11)),
+        rt(zbb, "mix64-p", "mix64.bin", ["-p"], pattern_bytes(64, 37, 11)),
+        rt(zbb, "rep64", "rep64.bin", [], fill_bytes(64, 0x41)),
+        rt(zbb, "rep64-p", "rep64.bin", ["-p"], fill_bytes(64, 0x41)),
+        rt(zbb, "midnul64", "midnul64.bin", [], bytes(midnul)),
+        rt(zbb, "all256", "all256.bin", [], bytes(range(256))),
+        rt(zbb, "odd255", "odd255.bin", [], pattern_bytes(255, 13, 7)),
+        rt(zbb, "space-name", "a b.bin", ["-p"], pattern_bytes(32, 5, 9)),
+        rt(zbb, "tiny-b1", "tiny.bin", ["-b1"], bytes((0x00, 0x01, 0x02))),
+        rt(zbb, "combo-pb1", "rep64.bin", ["-pb1"], fill_bytes(64, 0x41)),
+        rt(zbb, "upper-PB", "mix64.bin", ["-P", "-B1"], pattern_bytes(64, 37, 11)),
+    ]
+    return heavy + light
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Cross-platform zbb case runner")
     parser.add_argument("--zbb", type=Path, default=None, help="path to the zbb binary")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=None,
+        help="parallel workers (default: half the CPUs, at least 1)",
+    )
     args = parser.parse_args()
+    workers = default_workers() if args.jobs is None else max(1, args.jobs)
 
     zbb = find_zbb(args.zbb)
-    print("zbb: {0}".format(zbb))
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    log("zbb: {0}".format(zbb))
+    log("workers: {0} (cpus {1})".format(workers, os.cpu_count() or 1))
+    log("long jobs start first; short CLI/raw cases finish in milliseconds")
 
     if WORK_ROOT.exists():
         remove_tree(WORK_ROOT)
-    SRC_DIR.mkdir(parents=True)
-    install_fixtures()
+    WORK_ROOT.mkdir(parents=True)
 
-    failed: List[str] = []
-    print("==== CLI ====")
-    record(failed, "usage", test_cli(zbb, [], 0, b"Experimental compression program"))
-    record(failed, "unknown-key", test_cli(zbb, ["-x"], 1, b"_Unknown key in command line_"))
-    record(failed, "no-file", test_cli(zbb, ["-d"], 1, b"_No file to process_"))
-    record(failed, "bad-block", test_cli(zbb, ["-b0", "x.bin"], 1, b"_Uncorrect buffer size_"))
-    record(failed, "d-with-p", test_cli(zbb, ["-d", "-p", "x.zbb"], 1, b"_Unknown action requested_"))
+    jobs = build_jobs(zbb)
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = [(name, pool.submit(run_job, name, fn)) for name, fn in jobs]
+        results = [(name, future.result()) for name, future in pending]
+    elapsed = time.monotonic() - started
 
-    print("==== empty ====")
-    record(failed, "empty", test_empty(zbb))
-
-    print("==== roundtrip ====")
-    record(failed, "tiny", test_roundtrip(zbb, "tiny.bin", []))
-    record(failed, "raw7", test_roundtrip(zbb, "raw7.bin", []))
-    record(failed, "bwt8", test_roundtrip(zbb, "bwt8.bin", []))
-    record(failed, "lzp15-p", test_roundtrip(zbb, "lzp15.bin", ["-p"]))
-    record(failed, "lzp16-p", test_roundtrip(zbb, "lzp16.bin", ["-p"]))
-    record(failed, "mix64-p", test_roundtrip(zbb, "mix64.bin", ["-p"]))
-    record(failed, "rep64-p", test_roundtrip(zbb, "rep64.bin", ["-p"]))
-    record(failed, "tail7-b1", test_roundtrip(zbb, "tail7.bin", ["-b1"]))
-    record(failed, "big-b1", test_roundtrip(zbb, "big.bin", ["-b1"]))
-
-    if (SRC_DIR / "test.tar").is_file():
-        record(failed, "test.tar-p-b61", test_roundtrip(zbb, "test.tar", ["-p", "-b61"]))
-    else:
-        record(failed, "test.tar-p-b61", "TEST/test.tar is missing")
-
+    failed = [name for name, error in results if error]
     print("==== summary ====")
+    print("elapsed {0:.1f}s".format(elapsed))
     if not failed:
         print("ALL PASSED")
         return 0
