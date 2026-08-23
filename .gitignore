@@ -250,3 +250,8 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+
+# boffinit
+
+.boffin/*
+.cursor/*
