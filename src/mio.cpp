@@ -25,7 +25,7 @@ bfile* bfopen_as_stdout(void) {
 	return bf;
 }
 
-bfile* bfopen(char* name, char* mode) {
+bfile* bfopen(const char* name, const char* mode) {
 	bfile* bf;
 
 	bf = (bfile*)malloc(sizeof(bfile));
