@@ -255,3 +255,7 @@ __pycache__/
 
 .boffin/*
 .cursor/*
+
+# serena
+
+.serena/*

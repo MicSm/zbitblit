@@ -22,6 +22,7 @@ set(SOURCES
 
 set(HEADERS
     inc/cmstruct.h
+    inc/ecp.h
     inc/mio.h
     inc/arithm.h
     inc/bwt.h
