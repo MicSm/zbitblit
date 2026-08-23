@@ -1,93 +1,90 @@
 #include "inc/sort3.h"
 
+#include <array>
+#include <utility>
+
 namespace zbb {
 
-#define SWP(xx, yy)                                                                                                    \
-    {                                                                                                                  \
-        std::uint32_t swp = base[xx];                                                                                  \
-        base[xx] = base[yy];                                                                                           \
-        base[yy] = swp;                                                                                                \
-    }
-
-void qsort4(std::uint32_t* base, long nelem, int (*fcmp)(std::uint32_t, std::uint32_t))
+void qsort4(std::uint32_t* base, long nelem, int (*fcmp)(std::uint32_t, std::uint32_t, void*), void* ctx)
 {
-    long stack_start[32], stack_end[32];
-    long left, right, num, j, i, middle, stack_on;
+    const auto cmp = [&](std::uint32_t lhs, std::uint32_t rhs) { return fcmp(lhs, rhs, ctx); };
+    const auto swp = [&](long lhs, long rhs) { std::swap(base[lhs], base[rhs]); };
 
-    stack_on = 0;
+    std::array<long, 32> stack_start{};
+    std::array<long, 32> stack_end{};
+    long left = 0;
+    long right = 0;
+    long num = 0;
+    long j = 0;
+    long i = 0;
+    long middle = 0;
+    long stack_on = 0;
+
     stack_start[0] = 0;
     stack_end[0] = nelem - 1;
 
     while (stack_on >= 0)
     {
-
         left = stack_start[stack_on];
         right = stack_end[stack_on];
         stack_on--;
 
-        /* Sort items 'left' to 'right' */
         while (left < right)
         {
-
-            /* Pick the middle item based on a sample of 3 items. */
             num = right - left;
             if (num < 2)
             {
-                if (num == 1) /* Two Items */
-                    if (fcmp(base[left], base[right]) > 0)
-                        SWP(left, right)
+                if (num == 1)
+                    if (cmp(base[left], base[right]) > 0)
+                        swp(left, right);
                 break;
             }
 
-            /* Choose 'ptr_ptr[left]' to be a median of three values */
             middle = (right + left) >> 1;
 
-            if (fcmp(base[middle], base[right]) > 0)
-                SWP(middle, right)
+            if (cmp(base[middle], base[right]) > 0)
+                swp(middle, right);
 
-            if (fcmp(base[middle], base[left]) > 0)
-                SWP(left, middle)
-            else if (fcmp(base[left], base[right]) > 0)
-                SWP(left, right)
+            if (cmp(base[middle], base[left]) > 0)
+                swp(left, middle);
+            else if (cmp(base[left], base[right]) > 0)
+                swp(left, right);
 
             if (num == 2)
-            { /* Special Optimization on Three Items */
-                SWP(left, middle)
+            {
+                swp(left, middle);
                 break;
             }
 
             i = left + 1;
-            while (fcmp(base[left], base[i]) > 0)
+            while (cmp(base[left], base[i]) > 0)
                 i++;
 
             j = right;
-            while (fcmp(base[j], base[left]) > 0)
+            while (cmp(base[j], base[left]) > 0)
                 j--;
 
             while (i < j)
             {
-                SWP(i, j)
+                swp(i, j);
                 i++;
-                while (fcmp(base[left], base[i]) > 0)
+                while (cmp(base[left], base[i]) > 0)
                     i++;
                 j--;
-                while (fcmp(base[j], base[left]) > 0)
+                while (cmp(base[j], base[left]) > 0)
                     j--;
             }
 
-            SWP(left, j)
+            swp(left, j);
 
-            /* Both Sides are non-trivial */
             if (j - left > right - j)
             {
-                /* Left sort is larger, put it on the stack */
                 stack_start[++stack_on] = left;
                 stack_end[stack_on] = j - 1;
                 left = j + 1;
             }
             else
             {
-                /* Right sort is larger, put it on the stack */
                 stack_start[++stack_on] = j + 1;
                 stack_end[stack_on] = right;
                 right = j - 1;

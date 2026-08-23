@@ -5,208 +5,143 @@
 
 #include "inc/lzp_prep.h"
 
-#include <cstring>
-#include <memory>
-#include <new>
+#include <algorithm>
 
 namespace zbb {
 
 constexpr std::size_t HTSIZE4 = 65536;
 constexpr std::size_t HTSIZE5 = 32768;
 
-static std::unique_ptr<std::uint8_t*[]> HashTable4;
-static std::unique_ptr<std::uint8_t*[]> HashTable5;
-
-int CreateHashTables()
+void LzpTables::ensure()
 {
-    HashTable4.reset(new (std::nothrow) std::uint8_t*[HTSIZE4]);
-    if (!HashTable4)
-    {
-        return 0;
-    }
-
-    HashTable5.reset(new (std::nothrow) std::uint8_t*[HTSIZE5]);
-    if (!HashTable5)
-    {
-        HashTable4.reset();
-        return 0;
-    }
-    return 1;
+    ht4.resize(HTSIZE4);
+    ht5.resize(HTSIZE5);
 }
 
-void DestructHashTables()
+void LzpTables::clear()
 {
-    HashTable4.reset();
-    HashTable5.reset();
+    std::fill(ht4.begin(), ht4.end(), nullptr);
+    std::fill(ht5.begin(), ht5.end(), nullptr);
 }
 
-void CleanHashTables()
+static std::uint32_t HashFunction4(std::uint32_t index, const std::uint8_t* ptr)
 {
-    std::memset(HashTable4.get(), 0, HTSIZE4 * sizeof(std::uint8_t*));
-    std::memset(HashTable5.get(), 0, HTSIZE5 * sizeof(std::uint8_t*));
-}
-
-static std::uint32_t HashFunction4(std::uint32_t index, std::uint8_t* PTR)
-{
-    std::uint32_t x;
-
-    x = (static_cast<std::uint32_t>(PTR[index - 4]) << 24) | (static_cast<std::uint32_t>(PTR[index - 3]) << 16)
-        | (static_cast<std::uint32_t>(PTR[index - 2]) << 8) | (static_cast<std::uint32_t>(PTR[index - 1]));
+    std::uint32_t x = (static_cast<std::uint32_t>(ptr[index - 4]) << 24)
+        | (static_cast<std::uint32_t>(ptr[index - 3]) << 16) | (static_cast<std::uint32_t>(ptr[index - 2]) << 8)
+        | (static_cast<std::uint32_t>(ptr[index - 1]));
     x = (x >> 15) ^ x ^ (x >> 3);
     return x & (HTSIZE4 - 1);
 }
 
-static std::uint32_t HashFunction5(std::uint32_t index, std::uint8_t* PTR)
+static std::uint32_t HashFunction5(std::uint32_t index, const std::uint8_t* ptr)
 {
-    std::uint32_t x;
-
-    x = (static_cast<std::uint32_t>(PTR[index - 4]) << 24) | (static_cast<std::uint32_t>(PTR[index - 3]) << 16)
-        | (static_cast<std::uint32_t>(PTR[index - 2]) << 8) | (static_cast<std::uint32_t>(PTR[index - 1]));
-    x = (x >> 25 | static_cast<std::uint32_t>(PTR[index - 5]) << 7) ^ x ^ (x << 4);
+    std::uint32_t x = (static_cast<std::uint32_t>(ptr[index - 4]) << 24)
+        | (static_cast<std::uint32_t>(ptr[index - 3]) << 16) | (static_cast<std::uint32_t>(ptr[index - 2]) << 8)
+        | (static_cast<std::uint32_t>(ptr[index - 1]));
+    x = (x >> 25 | static_cast<std::uint32_t>(ptr[index - 5]) << 7) ^ x ^ (x << 4);
     return x & (HTSIZE5 - 1);
 }
 
-/* You can modify this const and get better compression */
 constexpr std::uint32_t LowerLimit = 38;
 
-static void OutPutLength(std::uint32_t OutPutLength, std::uint8_t* OutBuffer, std::uint32_t* PBuffer)
+static void OutPutLength(std::uint32_t length, std::uint8_t* out_buffer, std::uint32_t* cursor)
 {
-    while (OutPutLength > 254)
+    while (length > 254)
     {
-        OutBuffer[(*PBuffer)++] = 255;
-        OutPutLength -= 255;
+        out_buffer[(*cursor)++] = 255;
+        length -= 255;
     }
-    OutBuffer[(*PBuffer)++] = static_cast<std::uint8_t>(OutPutLength);
+    out_buffer[(*cursor)++] = static_cast<std::uint8_t>(length);
 }
 
-static std::uint32_t GetLength(std::uint8_t* InputBuffer, std::uint32_t* PBuff)
+static std::uint32_t GetLength(const std::uint8_t* input_buffer, std::uint32_t* cursor)
 {
-    std::uint32_t Result = 0;
-    while (Result += static_cast<std::uint32_t>(InputBuffer[*PBuff]), InputBuffer[(*PBuff)++] == 255)
+    std::uint32_t result = 0;
+    while (result += static_cast<std::uint32_t>(input_buffer[*cursor]), input_buffer[(*cursor)++] == 255)
         ;
-    return Result;
+    return result;
 }
 
-std::uint32_t LZP_PREPROCESS(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
+std::uint32_t LZP_PREPROCESS(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
 {
-    std::uint32_t i, CommonLength;
-    std::uint32_t OutLength;
-    std::uint32_t HashIndex4, HashIndex5;
-    std::uint8_t* Pointer4;
-    std::uint8_t* Pointer5;
-    std::uint32_t Pointer;
-    std::uint8_t* PastPointer;
+    std::copy_n(InData, 5, OutData);
+    std::uint32_t out_length = 5;
+    std::uint32_t pointer = 5;
 
-    /* send 5 bytes to output */
-    OutLength = 0;
-    for (i = 0; i < 5; i++)
-        OutData[i] = InData[i];
-    OutLength += 5;
-
-    /* begin preprocessing */
-
-    Pointer = 5;
-
-    HashTable4[HashFunction4(4, InData)] = InData + 4;
-    while (Pointer < InLength)
+    tables.ht4[HashFunction4(4, InData)] = InData + 4;
+    while (pointer < InLength)
     {
-        /* get hash adresses */
+        const std::uint32_t hash_index4 = HashFunction4(pointer, InData);
+        const std::uint32_t hash_index5 = HashFunction5(pointer, InData);
 
-        HashIndex4 = HashFunction4(Pointer, InData);
-        HashIndex5 = HashFunction5(Pointer, InData);
+        std::uint8_t* const pointer4 = tables.ht4[hash_index4];
+        std::uint8_t* const pointer5 = tables.ht5[hash_index5];
 
-        Pointer4 = HashTable4[HashIndex4];
-        Pointer5 = HashTable5[HashIndex5];
+        tables.ht5[hash_index5] = tables.ht4[hash_index4] = InData + pointer;
 
-        HashTable5[HashIndex5] = HashTable4[HashIndex4] = InData + Pointer;
-
-        if (Pointer5 != nullptr || Pointer4 != nullptr)
+        if (pointer5 != nullptr || pointer4 != nullptr)
         {
-            if (Pointer5 != nullptr)
-                PastPointer = Pointer5;
-            else
-                PastPointer = Pointer4;
+            std::uint8_t* past = pointer5 != nullptr ? pointer5 : pointer4;
+            std::uint32_t common_length = 0;
 
-            CommonLength = 0;
-
-            while (Pointer < InLength)
+            while (pointer < InLength)
             {
-                if (InData[Pointer] != *PastPointer)
+                if (InData[pointer] != *past)
                     break;
-                Pointer++;
-                PastPointer++;
-                CommonLength++;
+                pointer++;
+                past++;
+                common_length++;
             }
-            if (CommonLength > 0 && CommonLength < LowerLimit)
+            if (common_length > 0 && common_length < LowerLimit)
             {
-                Pointer -= CommonLength;
-                CommonLength = 0;
+                pointer -= common_length;
+                common_length = 0;
             }
-            if (CommonLength)
-                OutPutLength(CommonLength - LowerLimit + 256UL, OutData, &OutLength);
-
+            if (common_length)
+                OutPutLength(common_length - LowerLimit + 256UL, OutData, &out_length);
             else
-                OutPutLength(static_cast<std::uint32_t>(InData[Pointer++]), OutData, &OutLength);
+                OutPutLength(static_cast<std::uint32_t>(InData[pointer++]), OutData, &out_length);
         }
         else
-            OutData[OutLength++] = InData[Pointer++];
+            OutData[out_length++] = InData[pointer++];
     }
-    return OutLength;
+    return out_length;
 }
 
-std::uint32_t UnPreprocess(std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
+std::uint32_t UnPreprocess(LzpTables& tables, std::uint8_t* InData, std::uint8_t* OutData, std::uint32_t InLength)
 {
-    std::uint32_t i, CommonLength;
-    std::uint32_t OutLength;
-    std::uint32_t HashIndex4, HashIndex5;
-    std::uint8_t* Pointer4;
-    std::uint8_t* Pointer5;
-    std::uint32_t Pointer;
-    std::uint8_t* PastPointer;
+    std::copy_n(InData, 5, OutData);
+    std::uint32_t out_length = 5;
+    std::uint32_t pointer = 5;
 
-    /* send 5 bytes to output */
-    OutLength = 0;
-    for (i = 0; i < 5; i++)
-        OutData[i] = InData[i];
-    OutLength += 5;
-
-    /* begin unpreprocessing */
-
-    Pointer = 5;
-
-    HashTable4[HashFunction4(4, OutData)] = OutData + 4;
-    while (Pointer < InLength)
+    tables.ht4[HashFunction4(4, OutData)] = OutData + 4;
+    while (pointer < InLength)
     {
-        /* get hash adresses */
+        const std::uint32_t hash_index4 = HashFunction4(out_length, OutData);
+        const std::uint32_t hash_index5 = HashFunction5(out_length, OutData);
 
-        HashIndex4 = HashFunction4(OutLength, OutData);
-        HashIndex5 = HashFunction5(OutLength, OutData);
+        std::uint8_t* const pointer4 = tables.ht4[hash_index4];
+        std::uint8_t* const pointer5 = tables.ht5[hash_index5];
 
-        Pointer4 = HashTable4[HashIndex4];
-        Pointer5 = HashTable5[HashIndex5];
+        tables.ht5[hash_index5] = tables.ht4[hash_index4] = OutData + out_length;
 
-        HashTable5[HashIndex5] = HashTable4[HashIndex4] = OutData + OutLength;
-
-        if (Pointer5 != nullptr || Pointer4 != nullptr)
+        if (pointer5 != nullptr || pointer4 != nullptr)
         {
-            if (Pointer5 != nullptr)
-                PastPointer = Pointer5;
-            else
-                PastPointer = Pointer4;
-            CommonLength = GetLength(InData, &Pointer);
-            if (CommonLength < 256)
-                OutData[OutLength++] = static_cast<std::uint8_t>(CommonLength);
+            std::uint8_t* past = pointer5 != nullptr ? pointer5 : pointer4;
+            std::uint32_t common_length = GetLength(InData, &pointer);
+            if (common_length < 256)
+                OutData[out_length++] = static_cast<std::uint8_t>(common_length);
             else
             {
-                CommonLength = CommonLength - 256 + LowerLimit;
-                while (CommonLength--)
-                    OutData[OutLength++] = *PastPointer++;
+                common_length = common_length - 256 + LowerLimit;
+                while (common_length--)
+                    OutData[out_length++] = *past++;
             }
         }
         else
-            OutData[OutLength++] = InData[Pointer++];
+            OutData[out_length++] = InData[pointer++];
     }
-    return OutLength;
+    return out_length;
 }
 
 } // namespace zbb

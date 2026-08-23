@@ -16,6 +16,8 @@ set(SOURCES
     src/mio.cpp
     src/arithm.cpp
     src/bwt.cpp
+    src/cli.cpp
+    src/codec.cpp
     src/ecp.cpp
     src/lzp_prep.cpp
     src/mtf.cpp
@@ -23,14 +25,19 @@ set(SOURCES
 )
 
 set(HEADERS
+    inc/byte_order.h
+    inc/cli.h
     inc/cmstruct.h
+    inc/codec.h
     inc/ecp.h
+    inc/file_guard.h
     inc/mio.h
     inc/arithm.h
     inc/bwt.h
     inc/lzp_prep.h
     inc/mtf.h
     inc/sort3.h
+    inc/workspace.h
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})

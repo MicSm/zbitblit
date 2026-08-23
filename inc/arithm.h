@@ -2,6 +2,7 @@
 
 #include "inc/mio.h"
 
+#include <array>
 #include <cstdint>
 
 namespace zbb {
@@ -11,11 +12,11 @@ constexpr std::int16_t MAX_ALPHABET_SIZE = 260;
 
 struct ArithCodingContext
 {
-    std::int16_t alphabet_size;
-    std::int16_t c2s[MAX_ALPHABET_SIZE];
-    std::int16_t s2c[MAX_ALPHABET_SIZE + 1];
-    std::uint16_t sf[MAX_ALPHABET_SIZE + 1];
-    std::uint16_t scf[MAX_ALPHABET_SIZE + 1];
+    std::int16_t alphabet_size = 0;
+    std::array<std::int16_t, MAX_ALPHABET_SIZE> c2s{};
+    std::array<std::int16_t, MAX_ALPHABET_SIZE + 1> s2c{};
+    std::array<std::uint16_t, MAX_ALPHABET_SIZE + 1> sf{};
+    std::array<std::uint16_t, MAX_ALPHABET_SIZE + 1> scf{};
 };
 
 struct ArithStream

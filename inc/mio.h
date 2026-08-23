@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 
@@ -9,12 +10,12 @@ constexpr int SBUFF = 4096;
 
 struct bfile
 {
-    std::FILE* file;
-    std::uint32_t rbuf;
-    std::uint8_t rcnt;
-    std::uint32_t wbuf;
-    std::uint8_t wcnt;
-    std::uint8_t buff[SBUFF];
+    std::FILE* file = nullptr;
+    std::uint32_t rbuf = 0;
+    std::uint8_t rcnt = 0;
+    std::uint32_t wbuf = 0;
+    std::uint8_t wcnt = 0;
+    std::array<std::uint8_t, SBUFF> buff{};
 };
 
 [[nodiscard]] std::int32_t filesize(std::FILE* file);
