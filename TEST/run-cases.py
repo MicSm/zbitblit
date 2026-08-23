@@ -289,7 +289,7 @@ def build_jobs(zbb: Path) -> List[Tuple[str, JobFn]]:
     )
 
     light: List[Tuple[str, JobFn]] = [
-        ("usage", partial(test_cli, zbb, [], 0, b"Experimental compression program")),
+        ("usage", partial(test_cli, zbb, [], 0, b"Zbitblit. (c) 1999-2026 by Mike Semikov")),
         ("unknown-key", partial(test_cli, zbb, ["-x"], 1, b"_Unknown key in command line_")),
         ("no-file", partial(test_cli, zbb, ["-d"], 1, b"_No file to process_")),
         ("p-no-file", partial(test_cli, zbb, ["-p"], 1, b"_No file to process_")),

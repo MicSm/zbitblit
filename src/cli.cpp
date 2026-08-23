@@ -272,8 +272,8 @@ void print_usage()
         std::cout,
         "{}",
         "\n"
-        "Experimental compression program. (c) 1999-2020 by Michael Semikov\n"
-        "Version 0.1\n\n"
+        "Zbitblit. (c) 1999-2026 by Mike Semikov\n"
+        "Version 0.1. MIT License.\n\n"
         "use: zbitblit [ [-c] { [-p] [-bNNN] file_to_compress | -d file_to_decompress} ]\n\n"
         "This program is one-file archiver and also it has some keys:\n"
         "    -c - Write data to STDOUT\n\n"
