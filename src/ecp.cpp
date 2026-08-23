@@ -137,10 +137,9 @@ public:
 
     [[nodiscard]] static UniqueOwnedFile create(const char* path)
     {
-        UniqueOwnedFile out;
-        out.path_ = path;
-        out.file_.reset(std::fopen(path, "wb"));
-        return out;
+        std::string owned{path};
+        UniqueCFile file{std::fopen(owned.c_str(), "wb")};
+        return UniqueOwnedFile(std::move(file), std::move(owned));
     }
 
     [[nodiscard]] explicit operator bool() const noexcept
@@ -159,6 +158,11 @@ public:
     }
 
 private:
+    UniqueOwnedFile(UniqueCFile file, std::string path)
+        : file_(std::move(file)), path_(std::move(path))
+    {
+    }
+
     void reset() noexcept
     {
         const bool doomed = static_cast<bool>(file_) && !committed_;
@@ -221,11 +225,8 @@ public:
 
     [[nodiscard]] static UniqueOutBFile open(std::string path, bool write_stdout)
     {
-        UniqueOutBFile out;
-        out.stdout_ = write_stdout;
-        out.path_ = std::move(path);
-        out.bf_ = write_stdout ? bfopen_as_stdout() : bfopen(out.path_.c_str(), "wb");
-        return out;
+        bfile* const file = write_stdout ? bfopen_as_stdout() : bfopen(path.c_str(), "wb");
+        return UniqueOutBFile{file, write_stdout, std::move(path)};
     }
 
     [[nodiscard]] explicit operator bool() const noexcept
@@ -244,6 +245,11 @@ public:
     }
 
 private:
+    UniqueOutBFile(bfile* file, bool write_stdout, std::string path)
+        : bf_(file), stdout_(write_stdout), path_(std::move(path))
+    {
+    }
+
     // boffin: refused fclose of stdout, and remove the archive only when the write never committed
     void reset() noexcept
     {
@@ -355,6 +361,21 @@ struct BlockWorkspace
     }
 };
 
+[[nodiscard]] constexpr std::array<std::uint8_t, 4> be32_bytes(std::uint32_t value)
+{
+    return {
+        static_cast<std::uint8_t>(value >> 24),
+        static_cast<std::uint8_t>(value >> 16),
+        static_cast<std::uint8_t>(value >> 8),
+        static_cast<std::uint8_t>(value)};
+}
+
+[[nodiscard]] constexpr std::uint32_t u32_from_be32(std::array<std::uint8_t, 4> bytes)
+{
+    return (static_cast<std::uint32_t>(bytes[0]) << 24) | (static_cast<std::uint32_t>(bytes[1]) << 16)
+        | (static_cast<std::uint32_t>(bytes[2]) << 8) | static_cast<std::uint32_t>(bytes[3]);
+}
+
 [[nodiscard]] bool write_u8(std::FILE* file, std::uint8_t value)
 {
     return std::fputc(static_cast<int>(value), file) != EOF;
@@ -373,25 +394,18 @@ struct BlockWorkspace
 
 [[nodiscard]] bool write_be32(std::FILE* file, std::uint32_t value)
 {
-    return write_u8(file, static_cast<std::uint8_t>((value >> 24) & 0xff))
-        && write_u8(file, static_cast<std::uint8_t>((value >> 16) & 0xff))
-        && write_u8(file, static_cast<std::uint8_t>((value >> 8) & 0xff))
-        && write_u8(file, static_cast<std::uint8_t>(value & 0xff));
+    const auto bytes = be32_bytes(value);
+    return std::fwrite(bytes.data(), bytes.size(), 1, file) == 1;
 }
 
 [[nodiscard]] bool read_be32(std::FILE* file, std::uint32_t& value)
 {
-    std::uint32_t acc = 0;
-    for (int shift = 24; shift >= 0; shift -= 8)
+    std::array<std::uint8_t, 4> bytes{};
+    if (std::fread(bytes.data(), bytes.size(), 1, file) != 1)
     {
-        std::uint8_t byte = 0;
-        if (!read_u8(file, byte))
-        {
-            return false;
-        }
-        acc |= static_cast<std::uint32_t>(byte) << shift;
+        return false;
     }
-    value = acc;
+    value = u32_from_be32(bytes);
     return true;
 }
 
@@ -413,22 +427,20 @@ struct BlockWorkspace
 
 void encode_be32(bfile* file, ArithCodingContext& ctx, std::uint32_t value)
 {
-    EncodeChar(static_cast<std::int16_t>((value >> 24) & 0xff), file, &ctx);
-    EncodeChar(static_cast<std::int16_t>((value >> 16) & 0xff), file, &ctx);
-    EncodeChar(static_cast<std::int16_t>((value >> 8) & 0xff), file, &ctx);
-    EncodeChar(static_cast<std::int16_t>(value & 0xff), file, &ctx);
+    for (const std::uint8_t byte : be32_bytes(value))
+    {
+        EncodeChar(static_cast<std::int16_t>(byte), file, &ctx);
+    }
 }
 
 [[nodiscard]] std::uint32_t decode_be32(bfile* file, ArithCodingContext& ctx)
 {
-    std::uint32_t value = static_cast<std::uint32_t>(DecodeChar(file, &ctx));
-    value <<= 8;
-    value |= static_cast<std::uint32_t>(DecodeChar(file, &ctx));
-    value <<= 8;
-    value |= static_cast<std::uint32_t>(DecodeChar(file, &ctx));
-    value <<= 8;
-    value |= static_cast<std::uint32_t>(DecodeChar(file, &ctx));
-    return value;
+    std::array<std::uint8_t, 4> bytes{};
+    for (std::uint8_t& byte : bytes)
+    {
+        byte = static_cast<std::uint8_t>(DecodeChar(file, &ctx));
+    }
+    return u32_from_be32(bytes);
 }
 
 void copy_header_name(CompressedHeader& header, std::string_view path)
@@ -554,12 +566,12 @@ void encode_zero_run(std::uint32_t zeroes_count, bfile* out, ArithCodingContext&
 }
 
 void encode_mtf_block(
-    const std::uint8_t* bwt_in,
-    std::uint32_t len_out,
-    const std::uint32_t* idxs,
+    std::span<const std::uint8_t> bwt_in,
+    std::span<const std::uint32_t> idxs,
     bfile* out,
     ArithCodingContext& ctx)
 {
+    const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
     std::uint32_t j = 0;
     while (j < len_out)
     {
@@ -587,32 +599,65 @@ void encode_mtf_block(
 }
 
 void encode_bwt_block(
-    std::uint8_t* bwt_in,
-    std::uint32_t len_out,
-    std::uint32_t* idxs,
+    std::span<std::uint8_t> bwt_in,
+    std::span<std::uint32_t> idxs,
     bfile* out,
     ArithCodingContext& flag_ctx,
     ArithCodingContext& mtf_ctx)
 {
-    const std::uint32_t primary_index = BWT_TRANSFORM(len_out, bwt_in, idxs);
+    const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
+    const std::uint32_t primary_index = BWT_TRANSFORM(len_out, bwt_in.data(), idxs.data());
     EncodeChar(1, out, &flag_ctx);
     encode_be32(out, flag_ctx, primary_index);
-    encode_mtf_block(bwt_in, len_out, idxs, out, mtf_ctx);
+    encode_mtf_block(std::span<const std::uint8_t>{bwt_in.data(), len_out},
+                     std::span<const std::uint32_t>{idxs.data(), len_out},
+                     out,
+                     mtf_ctx);
 }
 
-void encode_raw_block(const std::uint8_t* data, std::uint32_t len_out, bfile* out, ArithCodingContext& flag_ctx)
+void encode_raw_block(std::span<const std::uint8_t> data, bfile* out, ArithCodingContext& flag_ctx)
 {
     EncodeChar(0, out, &flag_ctx);
-    for (std::uint32_t j = 0; j < len_out; ++j)
+    for (const std::uint8_t byte : data)
     {
-        EncodeChar(static_cast<std::int16_t>(data[j]), out, &flag_ctx);
+        EncodeChar(static_cast<std::int16_t>(byte), out, &flag_ctx);
     }
     EncodeChar(256, out, &flag_ctx);
 }
 
+void encode_payload_block(std::span<std::uint8_t> raw, BlockWorkspace& ws, bfile* out, bool preprocess)
+{
+    const auto raw_len = static_cast<std::uint32_t>(raw.size());
+    std::uint32_t len_out = raw_len;
+    std::uint8_t* transformed = raw.data();
+
+    if (preprocess && raw_len >= k_lzp_len_threshold)
+    {
+        CleanHashTables();
+        len_out = LZP_PREPROCESS(raw.data(), ws.back.data(), raw_len);
+        transformed = ws.back.data();
+    }
+
+    // boffin: kept raw, BWT, and LZP as separate outcomes instead of one shared block path
+    if (len_out >= k_bwt_len_threshold)
+    {
+        encode_bwt_block(
+            std::span<std::uint8_t>{transformed, len_out},
+            std::span<std::uint32_t>{ws.idxs.data(), ws.idxs.size()},
+            out,
+            ws.flag_ctx,
+            ws.mtf_ctx);
+    }
+    else
+    {
+        encode_raw_block(std::span<const std::uint8_t>{transformed, len_out}, out, ws.flag_ctx);
+    }
+}
+
 [[nodiscard]] bool emit_mtf_zeroes(std::span<std::uint8_t> output, std::uint32_t& len_out, std::uint32_t count)
 {
-    if (count > output.size() - len_out)
+    // boffin: refused wrapping remaining capacity when the fill cursor is already past the buffer
+    if (len_out > output.size() || count > output.size() - len_out)
     {
         return false;
     }
@@ -715,7 +760,8 @@ void encode_raw_block(const std::uint8_t* data, std::uint32_t len_out, bfile* ou
     std::uint8_t*& decoded,
     std::uint32_t& len_out)
 {
-    if (DecodeChar(in, &ws.flag_ctx) == 1)
+    const std::int16_t kind = DecodeChar(in, &ws.flag_ctx);
+    if (kind == 1)
     {
         const std::uint32_t string_pos = decode_be32(in, ws.flag_ctx);
         if (!decode_mtf_block(in, ws.mtf_ctx, ws.back, len_out))
@@ -729,7 +775,7 @@ void encode_raw_block(const std::uint8_t* data, std::uint32_t len_out, bfile* ou
         UnBWT(string_pos, len_out, ws.back.data(), ws.front.data(), ws.idxs.data());
         decoded = ws.front.data();
     }
-    else
+    else if (kind == 0)
     {
         if (!decode_raw_block(in, ws.flag_ctx, ws.back, len_out))
         {
@@ -740,6 +786,34 @@ void encode_raw_block(const std::uint8_t* data, std::uint32_t len_out, bfile* ou
             return ProcessError::bad_archive;
         }
         decoded = ws.back.data();
+    }
+    else
+    {
+        // boffin: refused treating an unknown block-kind symbol as a raw payload
+        return ProcessError::bad_archive;
+    }
+    return ProcessError::none;
+}
+
+[[nodiscard]] ProcessError finish_decoded_block(
+    bool preprocess,
+    std::uint32_t expected_len,
+    std::uint8_t*& ready,
+    std::uint32_t& len_out,
+    BlockWorkspace& ws)
+{
+    if (preprocess && expected_len >= k_lzp_len_threshold)
+    {
+        CleanHashTables();
+        std::uint8_t* const dest = (ready == ws.front.data()) ? ws.back.data() : ws.front.data();
+        len_out = UnPreprocess(ready, dest, len_out);
+        ready = dest;
+    }
+
+    // boffin: refused writing a reconstructed chunk whose length is not the archive's remaining block
+    if (len_out != expected_len)
+    {
+        return ProcessError::bad_archive;
     }
     return ProcessError::none;
 }
@@ -849,16 +923,92 @@ void print_usage()
         "Warning! You use this program at your own risk!\n");
 }
 
-[[nodiscard]] CliRequest parse_cli(int argc, char** argv)
+struct CliScan
 {
-    CliRequest req;
     bool c_key = false;
     bool p_key = false;
     bool d_key = false;
     std::optional<std::uint8_t> block_code;
     std::string process_file;
-    CliError err = CliError::none;
+    CliError error = CliError::none;
+};
 
+[[nodiscard]] std::optional<std::uint8_t> parse_block_size_digits(std::string_view digits)
+{
+    if (digits.empty())
+    {
+        return std::nullopt;
+    }
+
+    unsigned value = 0;
+    for (const char ch : digits)
+    {
+        const unsigned digit = static_cast<unsigned>(static_cast<unsigned char>(ch) - '0');
+        if (value > 127u)
+        {
+            return std::nullopt;
+        }
+        value = value * 10u + digit;
+    }
+    if (value < 1u || value > 127u)
+    {
+        return std::nullopt;
+    }
+    return static_cast<std::uint8_t>(value);
+}
+
+void apply_packed_flags(std::string_view token, CliScan& scan)
+{
+    for (std::size_t j = 1; j < token.size(); ++j)
+    {
+        switch (token[j])
+        {
+        case 'c':
+        case 'C':
+            scan.c_key = true;
+            break;
+        case 'p':
+        case 'P':
+            scan.p_key = true;
+            break;
+        case 'b':
+        case 'B':
+        {
+            std::size_t end = j + 1;
+            while (end < token.size() && std::isdigit(static_cast<unsigned char>(token[end])))
+            {
+                ++end;
+            }
+            const auto code = parse_block_size_digits(token.substr(j + 1, end - (j + 1)));
+            j = end - 1;
+            if (!code.has_value())
+            {
+                scan.error = CliError::buf_size_wrong;
+            }
+            else
+            {
+                scan.block_code = code;
+            }
+            break;
+        }
+        case 'd':
+        case 'D':
+            scan.d_key = true;
+            break;
+        default:
+            scan.error = CliError::bad_key;
+            break;
+        }
+        if (scan.error != CliError::none)
+        {
+            return;
+        }
+    }
+}
+
+[[nodiscard]] CliScan scan_cli(int argc, char** argv)
+{
+    CliScan scan;
     for (int i = 1; i < argc; ++i)
     {
         const std::string_view token = argv[i] != nullptr ? std::string_view{argv[i]} : std::string_view{};
@@ -866,117 +1016,71 @@ void print_usage()
         {
             if (token.size() >= 2)
             {
-                for (std::size_t j = 1; j < token.size(); ++j)
-                {
-                    switch (token[j])
-                    {
-                    case 'c':
-                    case 'C':
-                        c_key = true;
-                        break;
-                    case 'p':
-                    case 'P':
-                        p_key = true;
-                        break;
-                    case 'b':
-                    case 'B':
-                    {
-                        long long number = 0;
-                        while (++j < token.size())
-                        {
-                            const unsigned char ch = static_cast<unsigned char>(token[j]);
-                            if (!std::isdigit(ch))
-                            {
-                                break;
-                            }
-                            number = number * 10 + (ch - '0');
-                        }
-                        --j;
-                        if (number < 1 || number > 127)
-                        {
-                            err = CliError::buf_size_wrong;
-                        }
-                        else
-                        {
-                            block_code = static_cast<std::uint8_t>(number);
-                        }
-                        break;
-                    }
-                    case 'd':
-                    case 'D':
-                        d_key = true;
-                        break;
-                    default:
-                        err = CliError::bad_key;
-                        break;
-                    }
-                    if (err != CliError::none)
-                    {
-                        break;
-                    }
-                }
+                apply_packed_flags(token, scan);
             }
             else
             {
-                err = CliError::unknown_action;
+                scan.error = CliError::unknown_action;
             }
+        }
+        else if (!scan.process_file.empty())
+        {
+            scan.error = CliError::unknown_action;
         }
         else
         {
-            if (!process_file.empty())
-            {
-                err = CliError::unknown_action;
-            }
-            else
-            {
-                process_file.assign(token.begin(), token.end());
-            }
+            scan.process_file.assign(token.begin(), token.end());
         }
-        if (err != CliError::none)
+        if (scan.error != CliError::none)
         {
             break;
         }
     }
+    return scan;
+}
 
-    if (err != CliError::none)
+[[nodiscard]] CliRequest finish_cli(CliScan scan)
+{
+    CliRequest req;
+    if (scan.error != CliError::none)
     {
         req.action = CliAction::error;
-        req.error = err;
+        req.error = scan.error;
         return req;
     }
-    if (d_key && (p_key || block_code.has_value()))
+    if (scan.d_key && (scan.p_key || scan.block_code.has_value()))
     {
         req.action = CliAction::error;
         req.error = CliError::unknown_action;
         return req;
     }
-    if ((c_key || p_key || block_code.has_value() || d_key) && process_file.empty())
+    if ((scan.c_key || scan.p_key || scan.block_code.has_value() || scan.d_key) && scan.process_file.empty())
     {
         req.action = CliAction::error;
         req.error = CliError::no_process_file;
         return req;
     }
-    if (!c_key && !p_key && !block_code.has_value() && !d_key && process_file.empty())
+    if (!scan.c_key && !scan.p_key && !scan.block_code.has_value() && !scan.d_key && scan.process_file.empty())
     {
         req.action = CliAction::usage;
         return req;
     }
-    if (!d_key && !block_code.has_value())
+    if (!scan.d_key && !scan.block_code.has_value())
     {
-        block_code = 3;
+        scan.block_code = std::uint8_t{3};
     }
-    if (c_key && is_stdout_tty())
+    if (scan.c_key && is_stdout_tty())
     {
         req.action = CliAction::error;
         req.error = CliError::bad_stdout;
         return req;
     }
 
-    req.input_path = std::move(process_file);
-    req.options.preprocess = p_key;
-    req.options.block_size_code = block_code.value_or(0);
-    req.options.write_stdout = c_key;
-    if (d_key)
+    req.input_path = std::move(scan.process_file);
+    req.options.preprocess = scan.p_key;
+    req.options.block_size_code = scan.block_code.value_or(0);
+    req.options.write_stdout = scan.c_key;
+    if (scan.d_key)
     {
         req.action = CliAction::decompress;
     }
@@ -986,6 +1090,11 @@ void print_usage()
         req.output_path = req.input_path + ".zbb";
     }
     return req;
+}
+
+[[nodiscard]] CliRequest parse_cli(int argc, char** argv)
+{
+    return finish_cli(scan_cli(argc, argv));
 }
 
 void enable_stdout_binary()
@@ -1004,7 +1113,7 @@ void report_ratio(std::string_view input_path, std::string_view output_path)
     {
         return;
     }
-    const float ss1 = static_cast<float>(filesize(in.get()));
+    const std::int32_t in_size = filesize(in.get());
     in.reset();
 
     UniqueCFile out{std::fopen(out_name.c_str(), "rb")};
@@ -1012,8 +1121,13 @@ void report_ratio(std::string_view input_path, std::string_view output_path)
     {
         return;
     }
-    const float ss2 = static_cast<float>(filesize(out.get()));
-    const float bits_per_symbol = 8.0f * (ss2 / ss1);
+    const std::int32_t out_size = filesize(out.get());
+    // boffin: refused publishing a bits-per-symbol figure from a failed or empty size query
+    if (in_size <= 0 || out_size < 0)
+    {
+        return;
+    }
+    const float bits_per_symbol = 8.0f * (static_cast<float>(out_size) / static_cast<float>(in_size));
     std::fprintf(
         stderr,
         "\nFile \"%s\" was compressed\nThe %7f bits per symbol ratio was obtained\n",
@@ -1070,41 +1184,20 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
         }
         MtfSetup();
 
-        std::uint8_t* const input_buf = ws.front.data();
-        std::uint8_t* const output_buf = ws.back.data();
         std::uint32_t remaining = input_size;
         while (remaining != 0)
         {
             const std::uint32_t tmp_block_len = remaining >= block_size ? block_size : remaining;
-            if (std::fread(input_buf, tmp_block_len, 1, input.get()) != 1)
+            if (std::fread(ws.front.data(), tmp_block_len, 1, input.get()) != 1)
             {
                 return ProcessError::io_failed;
             }
             remaining -= tmp_block_len;
-
-            std::uint32_t len_out = 0;
-            std::uint8_t* bwt_in = nullptr;
-            if (options.preprocess && tmp_block_len >= k_lzp_len_threshold)
-            {
-                CleanHashTables();
-                len_out = LZP_PREPROCESS(input_buf, output_buf, tmp_block_len);
-                bwt_in = output_buf;
-            }
-            else
-            {
-                len_out = tmp_block_len;
-                bwt_in = input_buf;
-            }
-
-            // boffin: kept raw, BWT, and LZP as separate outcomes instead of one shared block path
-            if (len_out >= k_bwt_len_threshold)
-            {
-                encode_bwt_block(bwt_in, len_out, ws.idxs.data(), output.get(), ws.flag_ctx, ws.mtf_ctx);
-            }
-            else
-            {
-                encode_raw_block(bwt_in, len_out, output.get(), ws.flag_ctx);
-            }
+            encode_payload_block(
+                std::span<std::uint8_t>{ws.front.data(), tmp_block_len},
+                ws,
+                output.get(),
+                options.preprocess);
         }
 
         FinishEncode(output.get());
@@ -1174,27 +1267,17 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
             const std::uint32_t tmp_block_len = remaining >= block_size ? block_size : remaining;
             remaining -= tmp_block_len;
 
-            std::uint8_t* decoded = nullptr;
+            std::uint8_t* ready = nullptr;
             std::uint32_t len_out = 0;
-            if (const ProcessError err = decode_transformed_block(input.get(), ws, decoded, len_out);
+            if (const ProcessError err = decode_transformed_block(input.get(), ws, ready, len_out);
                 err != ProcessError::none)
             {
                 return err;
             }
-
-            std::uint8_t* ready = decoded;
-            if (preprocess && tmp_block_len >= k_lzp_len_threshold)
+            if (const ProcessError err = finish_decoded_block(preprocess, tmp_block_len, ready, len_out, ws);
+                err != ProcessError::none)
             {
-                CleanHashTables();
-                std::uint8_t* const dest = (decoded == ws.front.data()) ? ws.back.data() : ws.front.data();
-                len_out = UnPreprocess(decoded, dest, len_out);
-                ready = dest;
-            }
-
-            // boffin: refused writing a reconstructed chunk whose length is not the archive's remaining block
-            if (len_out != tmp_block_len)
-            {
-                return ProcessError::bad_archive;
+                return err;
             }
             if (len_out != 0 && std::fwrite(ready, len_out, 1, output_file) != 1)
             {
@@ -1214,15 +1297,17 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
 int run(int argc, char** argv)
 {
     const CliRequest req = parse_cli(argc, argv);
-    if (req.action == CliAction::usage)
+    switch (req.action)
     {
+    case CliAction::usage:
         print_usage();
         return 0;
-    }
-    if (req.action == CliAction::error)
-    {
+    case CliAction::error:
         print_cli_error(req.error);
         return 1;
+    case CliAction::compress:
+    case CliAction::decompress:
+        break;
     }
 
     if (req.options.write_stdout)

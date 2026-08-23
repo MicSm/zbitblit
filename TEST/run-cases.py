@@ -296,6 +296,7 @@ def build_jobs(zbb: Path) -> List[Tuple[str, JobFn]]:
         ("bad-block", partial(test_cli, zbb, ["-b0", "x.bin"], 1, b"_Uncorrect buffer size_")),
         ("b-only", partial(test_cli, zbb, ["-b", "x.bin"], 1, b"_Uncorrect buffer size_")),
         ("b128", partial(test_cli, zbb, ["-b128", "x.bin"], 1, b"_Uncorrect buffer size_")),
+        ("b-overflow", partial(test_cli, zbb, ["-b" + ("9" * 40), "x.bin"], 1, b"_Uncorrect buffer size_")),
         ("lone-dash", partial(test_cli, zbb, ["-"], 1, b"_Unknown action requested_")),
         ("two-files", partial(test_cli, zbb, ["a.bin", "b.bin"], 1, b"_Unknown action requested_")),
         ("d-with-p", partial(test_cli, zbb, ["-d", "-p", "x.zbb"], 1, b"_Unknown action requested_")),
