@@ -2,149 +2,34 @@
 
 #include "inc/mio.h"
 
-#include <cstdio>
-#include <memory>
-#include <string>
-#include <utility>
+#include <filesystem>
+#include <fstream>
+#include <ostream>
+#include <system_error>
 
 namespace zbb {
 
-struct CFileCloser
-{
-    void operator()(std::FILE* file) const noexcept
-    {
-        if (file != nullptr)
-        {
-            std::fclose(file);
-        }
-    }
-};
-
-using UniqueCFile = std::unique_ptr<std::FILE, CFileCloser>;
-
-class UniqueOwnedFile
+// Output file that self-deletes unless the writer commits a complete result.
+class PendingFile
 {
 public:
-    UniqueOwnedFile() = default;
-    UniqueOwnedFile(const UniqueOwnedFile&) = delete;
-    UniqueOwnedFile& operator=(const UniqueOwnedFile&) = delete;
+    PendingFile() = default;
+    PendingFile(const PendingFile&) = delete;
+    PendingFile& operator=(const PendingFile&) = delete;
 
-    UniqueOwnedFile(UniqueOwnedFile&& other) noexcept
-        : file_(std::move(other.file_)), path_(std::move(other.path_)), committed_(other.committed_)
+    ~PendingFile()
     {
-        other.committed_ = true;
+        discard_if_uncommitted();
     }
 
-    UniqueOwnedFile& operator=(UniqueOwnedFile&& other) noexcept
+    [[nodiscard]] bool open(const std::filesystem::path& path)
     {
-        if (this == &other)
-        {
-            return *this;
-        }
-        reset();
-        file_ = std::move(other.file_);
-        path_ = std::move(other.path_);
-        committed_ = other.committed_;
-        other.committed_ = true;
-        return *this;
+        path_ = path;
+        file_.open(path, std::ios::binary | std::ios::trunc);
+        return file_.is_open();
     }
 
-    ~UniqueOwnedFile()
-    {
-        reset();
-    }
-
-    [[nodiscard]] static UniqueOwnedFile create(const char* path)
-    {
-        std::string owned{path};
-        UniqueCFile file{std::fopen(owned.c_str(), "wb")};
-        return UniqueOwnedFile(std::move(file), std::move(owned));
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept
-    {
-        return static_cast<bool>(file_);
-    }
-
-    [[nodiscard]] std::FILE* get() const noexcept
-    {
-        return file_.get();
-    }
-
-    void commit() noexcept
-    {
-        committed_ = true;
-    }
-
-private:
-    UniqueOwnedFile(UniqueCFile file, std::string path)
-        : file_(std::move(file)), path_(std::move(path))
-    {
-    }
-
-    void reset() noexcept
-    {
-        const bool doomed = static_cast<bool>(file_) && !committed_;
-        file_.reset();
-        if (doomed)
-        {
-            std::remove(path_.c_str());
-        }
-    }
-
-    UniqueCFile file_;
-    std::string path_;
-    bool committed_{};
-};
-
-class UniqueOutBFile
-{
-public:
-    UniqueOutBFile() = default;
-    UniqueOutBFile(const UniqueOutBFile&) = delete;
-    UniqueOutBFile& operator=(const UniqueOutBFile&) = delete;
-
-    UniqueOutBFile(UniqueOutBFile&& other) noexcept
-        : file_(std::move(other.file_)), stdout_(other.stdout_), committed_(other.committed_),
-          path_(std::move(other.path_))
-    {
-        other.stdout_ = false;
-        other.committed_ = true;
-    }
-
-    UniqueOutBFile& operator=(UniqueOutBFile&& other) noexcept
-    {
-        if (this == &other)
-        {
-            return *this;
-        }
-        reset();
-        file_ = std::move(other.file_);
-        stdout_ = other.stdout_;
-        committed_ = other.committed_;
-        path_ = std::move(other.path_);
-        other.stdout_ = false;
-        other.committed_ = true;
-        return *this;
-    }
-
-    ~UniqueOutBFile()
-    {
-        reset();
-    }
-
-    [[nodiscard]] static UniqueOutBFile open(std::string path, bool write_stdout)
-    {
-        BitFile bits = write_stdout ? BitFile::stdout_write() : BitFile::open_write(path.c_str());
-        return UniqueOutBFile{std::move(bits), write_stdout, std::move(path)};
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept
-    {
-        return static_cast<bool>(file_);
-    }
-
-    [[nodiscard]] BitFile& stream() noexcept
+    [[nodiscard]] std::ostream& stream()
     {
         return file_;
     }
@@ -155,30 +40,74 @@ public:
     }
 
 private:
-    UniqueOutBFile(BitFile file, bool write_stdout, std::string path)
-        : file_(std::move(file)), stdout_(write_stdout), path_(std::move(path))
+    void discard_if_uncommitted()
     {
-    }
-
-    // boffin: refused fclose of stdout, and remove the archive only when the write never committed
-    void reset() noexcept
-    {
-        if (!file_)
+        if (!file_.is_open() || committed_)
         {
             return;
         }
-        const bool doomed = !stdout_ && !committed_;
         file_.close();
-        if (doomed)
-        {
-            std::remove(path_.c_str());
-        }
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
     }
 
-    BitFile file_{};
-    bool stdout_{};
-    bool committed_{};
-    std::string path_;
+    std::ofstream file_;
+    std::filesystem::path path_;
+    bool committed_ = false;
+};
+
+// Archive sink that self-deletes a partial file unless committed.
+class PendingArchive
+{
+public:
+    PendingArchive() = default;
+    PendingArchive(const PendingArchive&) = delete;
+    PendingArchive& operator=(const PendingArchive&) = delete;
+
+    ~PendingArchive()
+    {
+        discard_if_uncommitted();
+    }
+
+    [[nodiscard]] bool open(const std::filesystem::path& path, bool to_stdout)
+    {
+        if (to_stdout)
+        {
+            writer_.open_stdout();
+            return true;
+        }
+        path_ = path;
+        file_backed_ = writer_.open_file(path);
+        return file_backed_;
+    }
+
+    [[nodiscard]] BitWriter& stream()
+    {
+        return writer_;
+    }
+
+    void commit() noexcept
+    {
+        committed_ = true;
+    }
+
+private:
+    // boffin: refused deleting or closing stdout; only a file-backed sink rolls back
+    void discard_if_uncommitted()
+    {
+        if (!file_backed_ || committed_)
+        {
+            return;
+        }
+        writer_.close();
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+
+    BitWriter writer_;
+    std::filesystem::path path_;
+    bool file_backed_ = false;
+    bool committed_ = false;
 };
 
 } // namespace zbb

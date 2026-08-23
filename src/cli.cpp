@@ -1,9 +1,10 @@
 #include "inc/cli.h"
 
-#include <cctype>
 #include <cstdint>
-#include <cstdio>
+#include <cstdio> // stdout file descriptor for the tty and binary-mode probes
+#include <iostream>
 #include <optional>
+#include <ostream>
 #include <print>
 #include <string>
 #include <string_view>
@@ -35,6 +36,11 @@ struct CliScan
 #else
     return ::isatty(::fileno(stdout)) != 0;
 #endif
+}
+
+[[nodiscard]] constexpr bool is_ascii_digit(char ch)
+{
+    return ch >= '0' && ch <= '9';
 }
 
 [[nodiscard]] std::optional<std::uint8_t> parse_block_size_digits(std::string_view digits)
@@ -79,7 +85,7 @@ void apply_packed_flags(std::string_view token, CliScan& scan)
         case 'B':
         {
             std::size_t end = j + 1;
-            while (end < token.size() && std::isdigit(static_cast<unsigned char>(token[end])))
+            while (end < token.size() && is_ascii_digit(token[end]))
             {
                 ++end;
             }
@@ -205,7 +211,7 @@ CliRequest parse_cli(int argc, char** argv)
 
 void print_cli_error(CliError error)
 {
-    const char* message = nullptr;
+    std::string_view message;
     switch (error)
     {
     case CliError::bad_stdout:
@@ -227,12 +233,12 @@ void print_cli_error(CliError error)
         return;
     }
     // boffin: kept the CLI message bytes the same; diagnostics go through std::print
-    std::println(stderr, "\n{}", message);
+    std::println(std::cerr, "\n{}", message);
 }
 
 void print_process_error(ProcessError error)
 {
-    const char* message = nullptr;
+    std::string_view message;
     switch (error)
     {
     case ProcessError::zero_file_size:
@@ -250,16 +256,20 @@ void print_process_error(ProcessError error)
     case ProcessError::io_failed:
         message = "_I/O error_";
         break;
+    case ProcessError::file_too_large:
+        message = "_File is too large_";
+        break;
     case ProcessError::none:
         return;
     }
-    std::println(stderr, "\n{}", message);
+    std::println(std::cerr, "\n{}", message);
 }
 
 void print_usage()
 {
     // boffin: treated the usage banner as a literal so `{1 .. 127}` stays text
     std::print(
+        std::cout,
         "{}",
         "\n"
         "Experimental compression program. (c) 1999-2020 by Michael Semikov\n"

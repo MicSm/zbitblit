@@ -2,54 +2,54 @@
 
 namespace zbb {
 
-void MtfState::setup()
+void MtfEncoder::reset()
 {
-    HeadPtr = 0;
+    head = 0;
     for (std::uint16_t i = 0; i < 256; i++)
     {
-        data.MtfLinks[i] = static_cast<std::uint16_t>(i + 1);
+        links[i] = static_cast<std::uint16_t>(i + 1);
     }
 }
 
-void MtfState::setup_decode()
-{
-    for (std::uint16_t i = 0; i < 256; i++)
-    {
-        data.DeMtfArray[i] = static_cast<std::uint8_t>(i);
-    }
-}
-
-std::uint16_t MtfState::get_value(std::uint16_t in_value)
+std::uint16_t MtfEncoder::encode(std::uint8_t value)
 {
     std::uint16_t skipped = 0;
     std::uint16_t pred = 0;
-    std::uint16_t p = HeadPtr;
-    while (p != in_value)
+    std::uint16_t p = head;
+    while (p != value)
     {
         pred = p;
-        p = data.MtfLinks[p];
+        p = links[p];
         skipped++;
     }
     if (skipped != 0)
     {
-        data.MtfLinks[pred] = data.MtfLinks[p];
-        data.MtfLinks[p] = HeadPtr;
-        HeadPtr = p;
+        links[pred] = links[p];
+        links[p] = head;
+        head = p;
     }
     return skipped;
 }
 
-std::uint8_t MtfState::by_position(std::uint8_t position)
+void MtfDecoder::reset()
 {
-    const std::uint8_t result = data.DeMtfArray[position];
-
-    if (position != 0)
+    for (std::uint16_t i = 0; i < 256; i++)
     {
-        for (std::uint8_t i = position; i > 0; i--)
+        order[i] = static_cast<std::uint8_t>(i);
+    }
+}
+
+std::uint8_t MtfDecoder::decode(std::uint8_t rank)
+{
+    const std::uint8_t result = order[rank];
+
+    if (rank != 0)
+    {
+        for (std::uint8_t i = rank; i > 0; i--)
         {
-            data.DeMtfArray[i] = data.DeMtfArray[i - 1];
+            order[i] = order[i - 1];
         }
-        data.DeMtfArray[0] = result;
+        order[0] = result;
     }
     return result;
 }

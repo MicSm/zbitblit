@@ -10,6 +10,7 @@ enum class ProcessError
     no_memory,
     bad_archive,
     io_failed,
+    file_too_large,
 };
 
 } // namespace zbb

@@ -16,106 +16,49 @@
  *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.              *
  ****************************************************************************/
 
-#ifdef _MSC_VER
-#ifndef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
-#endif
-#endif
-
 #include "inc/ecp.h"
 
 #include "inc/byte_order.h"
 #include "inc/cli.h"
-#include "inc/cmstruct.h"
 #include "inc/file_guard.h"
+#include "inc/format.h"
 #include "inc/workspace.h"
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <new>
+#include <optional>
+#include <ostream>
 #include <print>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace zbb {
 namespace {
 
-[[nodiscard]] bool write_u8(std::FILE* file, std::uint8_t value)
+[[nodiscard]] std::span<const std::uint8_t> byte_span(std::string_view text)
 {
-    return std::fputc(static_cast<int>(value), file) != EOF;
+    return {reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
 }
 
-[[nodiscard]] bool read_u8(std::FILE* file, std::uint8_t& value)
+[[nodiscard]] std::filesystem::path path_of(std::string_view text)
 {
-    const int ch = std::fgetc(file);
-    if (ch == EOF)
-    {
-        return false;
-    }
-    value = static_cast<std::uint8_t>(ch);
-    return true;
+    return std::filesystem::path{std::string{text}};
 }
 
-[[nodiscard]] bool write_be32(std::FILE* file, std::uint32_t value)
+[[nodiscard]] bool write_archive_header(BitWriter& out, const ArchiveHeader& header)
 {
-    const auto bytes = be32_bytes(value);
-    return std::fwrite(bytes.data(), bytes.size(), 1, file) == 1;
-}
-
-[[nodiscard]] bool read_be32(std::FILE* file, std::uint32_t& value)
-{
-    std::array<std::uint8_t, 4> bytes{};
-    if (std::fread(bytes.data(), bytes.size(), 1, file) != 1)
-    {
-        return false;
-    }
-    value = u32_from_be32(bytes);
-    return true;
-}
-
-[[nodiscard]] ProcessError read_input_size(std::FILE* file, std::uint32_t& size)
-{
-    const std::int32_t raw = filesize(file);
-    // boffin: refused treating a failed size query as a 4GiB payload
-    if (raw < 0)
-    {
-        return ProcessError::io_failed;
-    }
-    if (raw == 0)
-    {
-        return ProcessError::zero_file_size;
-    }
-    size = static_cast<std::uint32_t>(raw);
-    return ProcessError::none;
-}
-
-void copy_header_name(CompressedHeader& header, std::string_view path)
-{
-    const std::size_t n = std::min(path.size(), sizeof(header.FileName) - 1);
-    std::copy_n(path.begin(), n, header.FileName);
-    header.FileName[n] = '\0';
-}
-
-[[nodiscard]] bool write_archive_header(BitFile& out, const CompressedHeader& header)
-{
-    std::FILE* const file = out.native();
-    if (std::fwrite(ArcIdentifier.data(), ArcIdentifier.size(), 1, file) != 1)
-    {
-        return false;
-    }
-    if (std::fwrite(header.FileName, std::strlen(header.FileName) + 1, 1, file) != 1)
-    {
-        return false;
-    }
-    if (!write_be32(file, header.UncompressedLen))
-    {
-        return false;
-    }
-    return write_u8(file, header.SystemFlag);
+    out.write_bytes(k_archive_magic);
+    out.write_bytes(byte_span(header.name));
+    out.write_byte(0);
+    out.write_bytes(be32_bytes(header.uncompressed_len));
+    out.write_byte(header.system_flag);
+    return out.good();
 }
 
 enum class HeaderStatus
@@ -125,51 +68,51 @@ enum class HeaderStatus
     bad_archive,
 };
 
-[[nodiscard]] HeaderStatus read_archive_header(BitFile& in, CompressedHeader& header)
+[[nodiscard]] HeaderStatus read_archive_header(BitReader& in, ArchiveHeader& header)
 {
-    std::FILE* const file = in.native();
-    std::array<std::uint8_t, 12> arc{};
-    if (std::fread(arc.data(), arc.size(), 1, file) != 1)
+    std::array<std::uint8_t, k_archive_magic.size()> magic{};
+    if (!in.read_exact(magic))
     {
         return HeaderStatus::io_failed;
     }
-    if (!std::equal(arc.begin(), arc.end(), ArcIdentifier.begin()))
+    if (magic != k_archive_magic)
     {
         return HeaderStatus::bad_archive;
     }
 
-    std::size_t n = 0;
+    header.name.clear();
     for (;;)
     {
-        const int ch = std::fgetc(file);
-        if (ch == EOF)
+        const std::optional<std::uint8_t> ch = in.read_byte();
+        if (!ch.has_value())
         {
             return HeaderStatus::io_failed;
         }
-        if (ch == 0)
+        if (*ch == 0)
         {
             break;
         }
-        // boffin: refused writing the stored name past FileName's last byte
-        if (n + 1 >= sizeof(header.FileName))
+        // boffin: kept the stored-name cap equal on both sides so every archive we write reads back
+        if (header.name.size() >= k_max_stored_name)
         {
             return HeaderStatus::bad_archive;
         }
-        header.FileName[n++] = static_cast<char>(static_cast<unsigned char>(ch));
+        header.name.push_back(static_cast<char>(*ch));
     }
-    header.FileName[n] = '\0';
 
-    if (!read_be32(file, header.UncompressedLen))
+    std::array<std::uint8_t, 4> len_bytes{};
+    if (!in.read_exact(len_bytes))
     {
         return HeaderStatus::io_failed;
     }
+    header.uncompressed_len = u32_from_be32(len_bytes);
 
-    std::uint8_t flag = 0;
-    if (!read_u8(file, flag))
+    const std::optional<std::uint8_t> flag = in.read_byte();
+    if (!flag.has_value())
     {
         return HeaderStatus::io_failed;
     }
-    header.SystemFlag = flag;
+    header.system_flag = *flag;
     return HeaderStatus::ok;
 }
 
@@ -187,35 +130,39 @@ enum class HeaderStatus
     return ProcessError::bad_archive;
 }
 
+[[nodiscard]] bool safe_output_name(const std::filesystem::path& path)
+{
+    if (path.empty() || path.has_root_name() || path.has_root_directory())
+    {
+        return false;
+    }
+    for (const auto& part : path)
+    {
+        if (part == "..")
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 void report_ratio(std::string_view input_path, std::string_view output_path)
 {
-    const std::string in_name{input_path};
-    const std::string out_name{output_path};
-    UniqueCFile in{std::fopen(in_name.c_str(), "rb")};
-    if (!in)
-    {
-        return;
-    }
-    const std::int32_t in_size = filesize(in.get());
-    in.reset();
-
-    UniqueCFile out{std::fopen(out_name.c_str(), "rb")};
-    if (!out)
-    {
-        return;
-    }
-    const std::int32_t out_size = filesize(out.get());
+    std::error_code in_ec;
+    std::error_code out_ec;
+    const std::uintmax_t in_size = std::filesystem::file_size(path_of(input_path), in_ec);
+    const std::uintmax_t out_size = std::filesystem::file_size(path_of(output_path), out_ec);
     // boffin: refused publishing a bits-per-symbol figure from a failed or empty size query
-    if (in_size <= 0 || out_size < 0)
+    if (in_ec || out_ec || in_size == 0)
     {
         return;
     }
     const float bits_per_symbol = 8.0f * (static_cast<float>(out_size) / static_cast<float>(in_size));
     // boffin: kept the seven-wide bits-per-symbol field; the line goes through std::print
     std::print(
-        stderr,
+        std::cerr,
         "\nFile \"{}\" was compressed\nThe {:7f} bits per symbol ratio was obtained\n",
-        in_name,
+        input_path,
         bits_per_symbol);
 }
 
@@ -228,32 +175,41 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
         return ProcessError::bad_archive;
     }
 
-    const std::string in_name{input_path};
-    const std::string out_name{output_path};
-
-    UniqueCFile input{std::fopen(in_name.c_str(), "rb")};
-    if (!input)
+    const std::filesystem::path in_path = path_of(input_path);
+    std::ifstream input{in_path, std::ios::binary};
+    if (!input.is_open())
     {
         return ProcessError::file_not_opened;
     }
 
-    std::uint32_t input_size = 0;
-    if (const ProcessError err = read_input_size(input.get(), input_size); err != ProcessError::none)
+    std::error_code size_ec;
+    const std::uintmax_t raw_size = std::filesystem::file_size(in_path, size_ec);
+    if (size_ec)
     {
-        return err;
+        return ProcessError::io_failed;
     }
+    if (raw_size == 0)
+    {
+        return ProcessError::zero_file_size;
+    }
+    // boffin: refused packing a length the 32-bit header field cannot carry
+    if (raw_size > 0xffffffffu)
+    {
+        return ProcessError::file_too_large;
+    }
+    const auto input_size = static_cast<std::uint32_t>(raw_size);
 
     const std::uint32_t block_size = block_bytes(options.block_size_code);
-    UniqueOutBFile output = UniqueOutBFile::open(out_name, options.write_stdout);
-    if (!output)
+    PendingArchive output;
+    if (!output.open(path_of(output_path), options.write_stdout))
     {
         return ProcessError::file_not_opened;
     }
 
-    CompressedHeader header{};
-    copy_header_name(header, input_path);
-    header.UncompressedLen = input_size;
-    header.SystemFlag = pack_system_flag(options.preprocess, options.block_size_code);
+    ArchiveHeader header;
+    header.name = std::string{input_path.substr(0, k_max_stored_name)};
+    header.uncompressed_len = input_size;
+    header.system_flag = pack_system_flag(options.preprocess, options.block_size_code);
     if (!write_archive_header(output.stream(), header))
     {
         return ProcessError::io_failed;
@@ -269,18 +225,18 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
         while (remaining != 0)
         {
             const std::uint32_t tmp_block_len = remaining >= block_size ? block_size : remaining;
-            if (std::fread(ws.front.data(), tmp_block_len, 1, input.get()) != 1)
+            input.read(reinterpret_cast<char*>(ws.front.data()), static_cast<std::streamsize>(tmp_block_len));
+            if (input.gcount() != static_cast<std::streamsize>(tmp_block_len))
             {
                 return ProcessError::io_failed;
             }
             remaining -= tmp_block_len;
-            ws.encode_payload(
-                std::span<std::uint8_t>{ws.front.data(), tmp_block_len},
-                output.stream());
+            ws.encode_payload(std::span<std::uint8_t>{ws.front.data(), tmp_block_len}, output.stream());
         }
 
-        ws.arith.finish_encode(output.stream());
-        if (std::ferror(output.stream().native()) != 0)
+        ws.encoder.finish(output.stream());
+        // boffin: kept the bit-tail flush ahead of the success check so a failed final write cannot commit
+        if (!output.stream().finish())
         {
             return ProcessError::io_failed;
         }
@@ -295,40 +251,43 @@ ProcessError compress_file(std::string_view input_path, std::string_view output_
 
 ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
 {
-    const std::string in_name{archive_path};
-    BitFile input = BitFile::open_read(in_name.c_str());
-    if (!input)
+    BitReader input;
+    if (!input.open(path_of(archive_path)))
     {
         return ProcessError::file_not_opened;
     }
 
-    CompressedHeader header{};
+    ArchiveHeader header;
     if (const ProcessError err = map_header_status(read_archive_header(input, header));
         err != ProcessError::none)
     {
         return err;
     }
 
-    const std::uint32_t input_size = header.UncompressedLen;
-    const std::uint8_t block_code = system_flag_block_code(header.SystemFlag);
+    const std::uint32_t input_size = header.uncompressed_len;
+    const std::uint8_t block_code = system_flag_block_code(header.system_flag);
     if (!is_block_code(block_code))
     {
         return ProcessError::bad_archive;
     }
     const std::uint32_t block_size = block_bytes(block_code);
-    const bool preprocess = system_flag_preprocess(header.SystemFlag);
+    const bool preprocess = system_flag_preprocess(header.system_flag);
 
-    UniqueOwnedFile owned_output;
-    std::FILE* output_file = stdout;
+    PendingFile owned_output;
     if (!write_stdout)
     {
-        owned_output = UniqueOwnedFile::create(header.FileName);
-        output_file = owned_output.get();
-        if (!owned_output)
+        const std::filesystem::path out_path{header.name};
+        // boffin: refused stored names that climb out of the extraction directory
+        if (!safe_output_name(out_path))
+        {
+            return ProcessError::bad_archive;
+        }
+        if (!owned_output.open(out_path))
         {
             return ProcessError::file_not_opened;
         }
     }
+    std::ostream& out = write_stdout ? std::cout : owned_output.stream();
 
     try
     {
@@ -342,21 +301,30 @@ ProcessError decompress_file(std::string_view archive_path, bool write_stdout)
             const std::uint32_t tmp_block_len = remaining >= block_size ? block_size : remaining;
             remaining -= tmp_block_len;
 
-            DecodeOutcome decoded = ws.decode_transformed(input);
-            if (decoded.error != ProcessError::none)
+            const auto decoded = ws.decode_transformed(input);
+            if (!decoded.has_value())
             {
-                return decoded.error;
+                return decoded.error();
             }
-            if (const ProcessError err = ws.finish_decoded(tmp_block_len, decoded); err != ProcessError::none)
+            const auto final_bytes = ws.finish_decoded(tmp_block_len, *decoded);
+            if (!final_bytes.has_value())
             {
-                return err;
+                return final_bytes.error();
             }
-            if (decoded.length != 0 && std::fwrite(decoded.data, decoded.length, 1, output_file) != 1)
+            out.write(
+                reinterpret_cast<const char*>(final_bytes->data()),
+                static_cast<std::streamsize>(final_bytes->size()));
+            if (!out.good())
             {
                 return ProcessError::io_failed;
             }
         }
 
+        out.flush();
+        if (!out.good())
+        {
+            return ProcessError::io_failed;
+        }
         owned_output.commit();
         return ProcessError::none;
     }
@@ -401,7 +369,7 @@ int run(int argc, char** argv)
         error = decompress_file(req.input_path, req.options.write_stdout);
         if (error == ProcessError::none)
         {
-            std::println(stderr, "\nArchive file \"{}\" was successfully processed", req.input_path);
+            std::println(std::cerr, "\nArchive file \"{}\" was successfully processed", req.input_path);
         }
     }
 

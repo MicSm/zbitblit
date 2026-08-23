@@ -13,25 +13,25 @@ constexpr std::array<std::uint32_t, 25> k_pyramid_table = {
     1022,     2046,     4094,      8190,      16382,     32766,     65534,     131070,   262142,
     524286,   1048574,  2097150,   4194302,   8388606,   16777214,  33554430};
 
-void encode_be32(BitFile& file, ArithCodingContext& ctx, ArithStream& stream, std::uint32_t value)
+void encode_be32(BitWriter& out, ArithCodingContext& ctx, ArithEncoder& enc, std::uint32_t value)
 {
     for (const std::uint8_t byte : be32_bytes(value))
     {
-        stream.encode_char(static_cast<std::int16_t>(byte), file, ctx);
+        enc.encode(static_cast<std::int16_t>(byte), ctx, out);
     }
 }
 
-[[nodiscard]] std::uint32_t decode_be32(BitFile& file, ArithCodingContext& ctx, ArithStream& stream)
+[[nodiscard]] std::uint32_t decode_be32(BitReader& in, ArithCodingContext& ctx, ArithDecoder& dec)
 {
     std::array<std::uint8_t, 4> bytes{};
     for (std::uint8_t& byte : bytes)
     {
-        byte = static_cast<std::uint8_t>(stream.decode_char(file, ctx));
+        byte = static_cast<std::uint8_t>(dec.decode(ctx, in));
     }
     return u32_from_be32(bytes);
 }
 
-void encode_zero_run(std::uint32_t zeroes_count, BitFile& out, ArithCodingContext& ctx, ArithStream& stream)
+void encode_zero_run(std::uint32_t zeroes_count, BitWriter& out, ArithCodingContext& ctx, ArithEncoder& enc)
 {
     std::uint32_t lhs = 0;
     std::uint32_t rhs = 24;
@@ -56,7 +56,7 @@ void encode_zero_run(std::uint32_t zeroes_count, BitFile& out, ArithCodingContex
     zeroes_count -= k_pyramid_table[lhs - 1];
     do
     {
-        stream.encode_char(static_cast<std::int16_t>(zeroes_count & 1), out, ctx);
+        enc.encode(static_cast<std::int16_t>(zeroes_count & 1), ctx, out);
         zeroes_count >>= 1;
     } while (--lhs);
 }
@@ -64,10 +64,10 @@ void encode_zero_run(std::uint32_t zeroes_count, BitFile& out, ArithCodingContex
 void encode_mtf_block(
     std::span<const std::uint8_t> bwt_in,
     std::span<const std::uint32_t> idxs,
-    BitFile& out,
+    BitWriter& out,
     ArithCodingContext& ctx,
-    ArithStream& stream,
-    MtfState& mtf)
+    ArithEncoder& enc,
+    MtfEncoder& mtf)
 {
     const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
     std::uint32_t j = 0;
@@ -76,7 +76,7 @@ void encode_mtf_block(
         std::uint16_t mtf_value = 0;
         std::uint32_t zeroes_count = 0;
         while (j < len_out &&
-               (mtf_value = mtf.get_value(bwt_in[((len_out + idxs[j]) - 3) % len_out])) == 0)
+               (mtf_value = mtf.encode(bwt_in[((len_out + idxs[j]) - 3) % len_out])) == 0)
         {
             ++zeroes_count;
             ++j;
@@ -84,52 +84,50 @@ void encode_mtf_block(
 
         if (zeroes_count-- > 0)
         {
-            encode_zero_run(zeroes_count, out, ctx, stream);
+            encode_zero_run(zeroes_count, out, ctx, enc);
         }
 
         if (mtf_value != 0)
         {
-            stream.encode_char(static_cast<std::int16_t>(mtf_value + 1), out, ctx);
+            enc.encode(static_cast<std::int16_t>(mtf_value + 1), ctx, out);
         }
         ++j;
     }
-    stream.encode_char(257, out, ctx);
+    enc.encode(k_mtf_terminator, ctx, out);
 }
 
-void encode_bwt_block(std::span<std::uint8_t> bwt_in, std::span<std::uint32_t> idxs, BitFile& out, BlockWorkspace& ws)
+void encode_bwt_block(
+    std::span<std::uint8_t> bwt_in,
+    std::span<std::uint32_t> idxs,
+    BitWriter& out,
+    BlockWorkspace& ws)
 {
     const auto len_out = static_cast<std::uint32_t>(bwt_in.size());
-    const std::uint32_t primary_index = ws.bwt.transform(len_out, bwt_in.data(), idxs.data());
-    ws.arith.stream.encode_char(1, out, ws.arith.flag);
-    encode_be32(out, ws.arith.flag, ws.arith.stream, primary_index);
-    encode_mtf_block(
-        std::span<const std::uint8_t>{bwt_in.data(), len_out},
-        std::span<const std::uint32_t>{idxs.data(), len_out},
-        out,
-        ws.arith.mtf,
-        ws.arith.stream,
-        ws.mtf);
+    const std::uint32_t primary_index = ws.bwt.transform(bwt_in, idxs.first(len_out));
+    ws.encoder.encode(1, ws.flag_model, out);
+    encode_be32(out, ws.flag_model, ws.encoder, primary_index);
+    encode_mtf_block(bwt_in, idxs.first(len_out), out, ws.mtf_model, ws.encoder, ws.mtf_encoder);
 }
 
 void encode_raw_block(
     std::span<const std::uint8_t> data,
-    BitFile& out,
+    BitWriter& out,
     ArithCodingContext& flag_ctx,
-    ArithStream& stream)
+    ArithEncoder& enc)
 {
-    stream.encode_char(0, out, flag_ctx);
+    enc.encode(0, flag_ctx, out);
     for (const std::uint8_t byte : data)
     {
-        stream.encode_char(static_cast<std::int16_t>(byte), out, flag_ctx);
+        enc.encode(static_cast<std::int16_t>(byte), flag_ctx, out);
     }
-    stream.encode_char(256, out, flag_ctx);
+    enc.encode(k_raw_terminator, flag_ctx, out);
 }
 
 [[nodiscard]] bool emit_mtf_zeroes(
     std::span<std::uint8_t> output,
     std::uint32_t& len_out,
     std::uint32_t count,
-    MtfState& mtf)
+    MtfDecoder& mtf)
 {
     // boffin: refused wrapping remaining capacity when the fill cursor is already past the buffer
     if (len_out > output.size() || count > output.size() - len_out)
@@ -138,16 +136,16 @@ void encode_raw_block(
     }
     while (count-- != 0)
     {
-        output[len_out++] = mtf.by_position(0);
+        output[len_out++] = mtf.decode(0);
     }
     return true;
 }
 
 [[nodiscard]] bool decode_mtf_block(
-    BitFile& in,
+    BitReader& in,
     ArithCodingContext& ctx,
-    ArithStream& stream,
-    MtfState& mtf,
+    ArithDecoder& dec,
+    MtfDecoder& mtf,
     std::span<std::uint8_t> output,
     std::uint32_t& len_out)
 {
@@ -156,7 +154,7 @@ void encode_raw_block(
     std::uint32_t num_zeroes = 0;
     std::uint16_t nx_val = 0;
     len_out = 0;
-    while ((nx_val = static_cast<std::uint16_t>(stream.decode_char(in, ctx))) != 257)
+    while ((nx_val = static_cast<std::uint16_t>(dec.decode(ctx, in))) != k_mtf_terminator)
     {
         if (nx_val < 2)
         {
@@ -193,8 +191,7 @@ void encode_raw_block(
             {
                 return false;
             }
-            output[len_out++] =
-                static_cast<std::uint8_t>(mtf.by_position(static_cast<std::uint8_t>(nx_val - 1)));
+            output[len_out++] = mtf.decode(static_cast<std::uint8_t>(nx_val - 1));
         }
     }
 
@@ -214,15 +211,15 @@ void encode_raw_block(
 }
 
 [[nodiscard]] bool decode_raw_block(
-    BitFile& in,
+    BitReader& in,
     ArithCodingContext& ctx,
-    ArithStream& stream,
+    ArithDecoder& dec,
     std::span<std::uint8_t> output,
     std::uint32_t& len_out)
 {
     std::uint16_t nx_val = 0;
     len_out = 0;
-    while ((nx_val = static_cast<std::uint16_t>(stream.decode_char(in, ctx))) != 256)
+    while ((nx_val = static_cast<std::uint16_t>(dec.decode(ctx, in))) != k_raw_terminator)
     {
         if (len_out >= output.size())
         {
@@ -235,93 +232,90 @@ void encode_raw_block(
 
 } // namespace
 
-void BlockWorkspace::encode_payload(std::span<std::uint8_t> raw, BitFile& out)
+void BlockWorkspace::encode_payload(std::span<std::uint8_t> raw, BitWriter& out)
 {
-    const auto raw_len = static_cast<std::uint32_t>(raw.size());
-    std::uint32_t len_out = raw_len;
-    std::uint8_t* transformed = raw.data();
+    std::span<std::uint8_t> transformed = raw;
 
-    if (preprocess && raw_len >= k_lzp_len_threshold)
+    if (preprocess && raw.size() >= k_lzp_len_threshold)
     {
         lzp.clear();
-        len_out = lzp.preprocess(raw.data(), back.data(), raw_len);
-        transformed = back.data();
+        const std::uint32_t len_out = lzp.preprocess(raw, back);
+        transformed = std::span<std::uint8_t>{back.data(), len_out};
     }
 
     // boffin: kept raw, BWT, and LZP as separate outcomes instead of one shared block path
-    if (len_out >= k_bwt_len_threshold)
+    if (transformed.size() >= k_bwt_len_threshold)
     {
-        encode_bwt_block(
-            std::span<std::uint8_t>{transformed, len_out},
-            std::span<std::uint32_t>{idxs.data(), idxs.size()},
-            out,
-            *this);
+        encode_bwt_block(transformed, idxs, out, *this);
     }
     else
     {
-        encode_raw_block(std::span<const std::uint8_t>{transformed, len_out}, out, arith.flag, arith.stream);
+        encode_raw_block(transformed, out, flag_model, encoder);
     }
 }
 
-DecodeOutcome BlockWorkspace::decode_transformed(BitFile& in)
+std::expected<std::span<std::uint8_t>, ProcessError> BlockWorkspace::decode_transformed(BitReader& in)
 {
-    DecodeOutcome decoded;
-    const std::int16_t kind = arith.stream.decode_char(in, arith.flag);
+    const std::int16_t kind = decoder.decode(flag_model, in);
+    std::uint32_t length = 0;
     if (kind == 1)
     {
-        const std::uint32_t string_pos = decode_be32(in, arith.flag, arith.stream);
-        if (!decode_mtf_block(in, arith.mtf, arith.stream, mtf, back, decoded.length))
+        const std::uint32_t string_pos = decode_be32(in, flag_model, decoder);
+        if (!decode_mtf_block(in, mtf_model, decoder, mtf_decoder, back, length))
         {
-            decoded.error = ProcessError::bad_archive;
-            return decoded;
+            return std::unexpected(ProcessError::bad_archive);
         }
-        if (decoded.length < k_bwt_len_threshold || string_pos >= decoded.length)
+        if (length < k_bwt_len_threshold || string_pos >= length)
         {
-            decoded.error = ProcessError::bad_archive;
-            return decoded;
+            return std::unexpected(ProcessError::bad_archive);
         }
-        bwt.unbwt(string_pos, decoded.length, back.data(), front.data(), idxs.data());
-        decoded.data = front.data();
+        bwt.unbwt(
+            string_pos,
+            std::span<const std::uint8_t>{back.data(), length},
+            std::span<std::uint8_t>{front.data(), length},
+            std::span<std::uint32_t>{idxs.data(), length});
+        return std::span<std::uint8_t>{front.data(), length};
     }
-    else if (kind == 0)
+    if (kind == 0)
     {
-        if (!decode_raw_block(in, arith.flag, arith.stream, back, decoded.length))
+        if (!decode_raw_block(in, flag_model, decoder, back, length))
         {
-            decoded.error = ProcessError::bad_archive;
-            return decoded;
+            return std::unexpected(ProcessError::bad_archive);
         }
-        if (decoded.length >= k_bwt_len_threshold)
+        if (length >= k_bwt_len_threshold)
         {
-            decoded.error = ProcessError::bad_archive;
-            return decoded;
+            return std::unexpected(ProcessError::bad_archive);
         }
-        decoded.data = back.data();
+        return std::span<std::uint8_t>{back.data(), length};
     }
-    else
-    {
-        // boffin: refused treating an unknown block-kind symbol as a raw payload
-        decoded.error = ProcessError::bad_archive;
-        return decoded;
-    }
-    return decoded;
+    // boffin: refused treating an unknown block-kind symbol as a raw payload
+    return std::unexpected(ProcessError::bad_archive);
 }
 
-ProcessError BlockWorkspace::finish_decoded(std::uint32_t expected_len, DecodeOutcome& decoded)
+std::expected<std::span<const std::uint8_t>, ProcessError> BlockWorkspace::finish_decoded(
+    std::uint32_t expected_len,
+    std::span<std::uint8_t> decoded)
 {
+    std::span<const std::uint8_t> result = decoded;
     if (preprocess && expected_len >= k_lzp_len_threshold)
     {
         lzp.clear();
-        std::uint8_t* const dest = alternate(decoded.data);
-        decoded.length = lzp.unpreprocess(decoded.data, dest, decoded.length);
-        decoded.data = dest;
+        std::uint8_t* const dest = alternate(decoded.data());
+        const std::optional<std::uint32_t> expanded =
+            lzp.unpreprocess(decoded, std::span<std::uint8_t>{dest, front.size()});
+        if (!expanded.has_value())
+        {
+            return std::unexpected(ProcessError::bad_archive);
+        }
+        result = std::span<const std::uint8_t>{dest, *expanded};
     }
 
     // boffin: refused writing a reconstructed chunk whose length is not the archive's remaining block
-    if (decoded.length != expected_len)
+    if (result.size() != expected_len)
     {
-        return ProcessError::bad_archive;
+        return std::unexpected(ProcessError::bad_archive);
     }
-    return ProcessError::none;
+    return result;
 }
 
 } // namespace zbb
